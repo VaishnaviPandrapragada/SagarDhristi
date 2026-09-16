@@ -1,9 +1,10 @@
 from typing import Any, Dict
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services.environment_service import EnvironmentalConditions
+from services.real_environment_service import RealEnvironmentService
 from services.hindcast_service import HindcastService
 from services.source_zone_service import SourceZoneService
 from services.source_time_service import SourceTimeService
@@ -19,93 +20,68 @@ router = APIRouter(
 )
 
 
+# ---------------------------------------------------------------------------
+# Dataset paths
+# ---------------------------------------------------------------------------
+
+ERA5_DATASET_PATH = "era5_guam_2022_test.nc"
+GLORYS_DATASET_PATH = "data/ocean_currents/glorys_guam_2022_test.nc"
+AIS_DATASET_PATH = "Guam_AIS_2022_FINAL.parquet"
+
+
+# ---------------------------------------------------------------------------
+# Request schema
+# ---------------------------------------------------------------------------
+
 class PhaseBRequest(BaseModel):
-    spill_latitude: float = Field(
-        ...,
-        ge=-90.0,
-        le=90.0,
-    )
-
-    spill_longitude: float = Field(
-        ...,
-        ge=-180.0,
-        le=180.0,
-    )
-
+    spill_latitude: float = Field(..., ge=-90.0, le=90.0)
+    spill_longitude: float = Field(..., ge=-180.0, le=180.0)
     spill_timestamp: str
+    lookback_hours: float = Field(default=6.0, gt=0.0)
+    forecast_hours: float = Field(default=6.0, gt=0.0)
+    time_step_hours: float = Field(default=1.0, gt=0.0)
 
-    wind_speed_knots: float = Field(
-        ...,
-        ge=0.0,
-    )
 
-    wind_direction_deg: float = Field(
-        ...,
-        ge=0.0,
-        lt=360.0,
-    )
-
-    current_speed_knots: float = Field(
-        ...,
-        ge=0.0,
-    )
-
-    current_direction_deg: float = Field(
-        ...,
-        ge=0.0,
-        lt=360.0,
-    )
-
-    lookback_hours: float = Field(
-        default=6.0,
-        gt=0.0,
-    )
-
-    forecast_hours: float = Field(
-        default=6.0,
-        gt=0.0,
-    )
-
-    time_step_hours: float = Field(
-        default=1.0,
-        gt=0.0,
-    )
-
+# ---------------------------------------------------------------------------
+# Phase-B analytical pipeline
+# ---------------------------------------------------------------------------
 
 @router.post("/analyze")
 def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
     """
     Run the complete Phase-B analytical pipeline.
 
-    Phase B:
-        Environment
+    Pipeline:
+        Real ERA5 + GLORYS
+        -> Environmental Conditions
         -> Backward Hindcast
         -> Source Zone
         -> Source Time
         -> Forward Drift
-        -> AIS matching
+        -> Real AIS Matching
         -> Evidence Fusion
         -> Alert
     """
 
     try:
-        # --------------------------------------------------
-        # 1. Environmental conditions
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 1. Real environmental data
+        # ---------------------------------------------------------------
 
-        environment = EnvironmentalConditions(
+        environment_service = RealEnvironmentService(
+            era5_dataset_path=ERA5_DATASET_PATH,
+            glorys_dataset_path=GLORYS_DATASET_PATH,
+        )
+
+        environment = environment_service.get_environment(
             latitude=request.spill_latitude,
             longitude=request.spill_longitude,
             timestamp=request.spill_timestamp,
-            wind_speed_knots=request.wind_speed_knots,
-            wind_direction_deg=request.wind_direction_deg,
-            current_speed_knots=request.current_speed_knots,
-            current_direction_deg=request.current_direction_deg,
         )
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 2. Backward hindcast
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         hindcast_service = HindcastService(
             particle_count=100,
@@ -120,40 +96,36 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
             time_step_hours=request.time_step_hours,
         )
 
-        source_particles = (
-            hindcast_result["source_particles"]
-        )
+        source_particles = hindcast_result["source_particles"]
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 3. Probable source zone
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         source_zone_service = SourceZoneService(
-            containment_percent=90.0
+            containment_percent=90.0,
         )
 
-        source_zone = (
-            source_zone_service.calculate_source_zone(
-                source_particles=source_particles
-            )
+        source_zone = source_zone_service.calculate_source_zone(
+            source_particles=source_particles,
         )
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 4. Source-time estimation
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         source_time_service = SourceTimeService()
 
-        source_time = (
-            source_time_service.estimate_source_time(
-                spill_timestamp=request.spill_timestamp,
-                lookback_hours=request.lookback_hours,
-            )
+        source_time = source_time_service.estimate_source_time(
+            spill_timestamp=request.spill_timestamp,
+            lookback_hours=request.lookback_hours,
         )
 
-        # --------------------------------------------------
+        source_time_value = source_time["estimated_source_time"]
+
+        # ---------------------------------------------------------------
         # 5. Forward drift prediction
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         source_center = source_zone["center"]
 
@@ -163,73 +135,71 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
         )
 
         forward_result = forward_service.forward_drift(
-            source_latitude=float(
-                source_center["latitude"]
-            ),
-            source_longitude=float(
-                source_center["longitude"]
-            ),
+            source_latitude=source_center["latitude"],
+            source_longitude=source_center["longitude"],
             environment=environment,
             forecast_hours=request.forecast_hours,
             time_step_hours=request.time_step_hours,
         )
 
-        # --------------------------------------------------
-        # 6. AIS matching
-        #
-        # For the API integration test we use deterministic
-        # AIS records. The production path can replace this
-        # dataframe with the actual Phase-A AIS dataset.
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 6. Real AIS source matching
+        # ---------------------------------------------------------------
 
-        import pandas as pd
-
-        source_time_value = source_time[
-            "estimated_source_time"
-        ]
-
-        test_ais = pd.DataFrame(
-            [
-                {
-                    "MMSI": "SIM030012",
-                    "LAT": -19.719000,
-                    "LON": 115.387000,
-                    "BaseDateTime": source_time_value,
-                },
-                {
-                    "MMSI": "SIM030013",
-                    "LAT": -19.720000,
-                    "LON": 115.388000,
-                    "BaseDateTime": source_time_value,
-                },
-            ]
+        ais_dataframe = pd.read_parquet(
+            AIS_DATASET_PATH,
+            columns=[
+                "mmsi",
+                "base_date_time",
+                "latitude",
+                "longitude",
+            ],
         )
 
+        ais_dataframe["base_date_time"] = pd.to_datetime(
+            ais_dataframe["base_date_time"],
+            utc=True,
+            errors="coerce",
+        )
+
+        source_time_timestamp = pd.to_datetime(
+            source_time_value,
+            utc=True,
+        )
+
+        time_tolerance = pd.Timedelta(hours=1.0)
+
+        start_time = source_time_timestamp - time_tolerance
+        end_time = source_time_timestamp + time_tolerance
+
+        ais_dataframe = ais_dataframe[
+            (ais_dataframe["base_date_time"] >= start_time)
+            & (ais_dataframe["base_date_time"] <= end_time)
+        ].copy()
+
         ais_service = AISSourceMatchingService(
-            time_tolerance_hours=1.0
+            time_tolerance_hours=1.0,
         )
 
         ais_candidates = ais_service.match_vessels(
-            dataframe=test_ais,
+            dataframe=ais_dataframe,
             source_zone=source_zone,
             estimated_source_time=source_time_value,
         )
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 7. Evidence fusion
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         evidence_service = PhaseBEvidenceService()
 
-        ranked_candidates = (
-            evidence_service.rank_candidates(
-                ais_candidates
-            )
+        ranked_candidates = evidence_service.rank_candidates(
+            ais_candidates
         )
 
-        # --------------------------------------------------
-        # 8. Backend alert
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 8. Alert generation
+        # ---------------------------------------------------------------
 
         alert_service = AlertService()
 
@@ -248,54 +218,29 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
             ranked_candidates=ranked_candidates,
         )
 
-        # --------------------------------------------------
-        # 9. Complete response
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 9. Final response
+        # ---------------------------------------------------------------
 
         return {
             "phase": "B",
             "status": "success",
-
             "spill": {
                 "latitude": request.spill_latitude,
                 "longitude": request.spill_longitude,
                 "timestamp": request.spill_timestamp,
             },
-
             "environment": environment.to_dict(),
-
             "hindcast": {
-                "particle_count": hindcast_result[
-                    "particle_count"
-                ],
-                "lookback_hours": hindcast_result[
-                    "lookback_hours"
-                ],
-                "time_step_hours": hindcast_result[
-                    "time_step_hours"
-                ],
+                "particle_count": hindcast_result["particle_count"],
+                "lookback_hours": request.lookback_hours,
+                "time_step_hours": request.time_step_hours,
                 "drift": hindcast_result["drift"],
             },
-
             "source_zone": source_zone,
-
             "source_time": source_time,
-
-            "forward_prediction": {
-                "particle_count": forward_result[
-                    "particle_count"
-                ],
-                "forecast_hours": forward_result[
-                    "forecast_hours"
-                ],
-                "time_step_hours": forward_result[
-                    "time_step_hours"
-                ],
-                "drift": forward_result["drift"],
-            },
-
+            "forward_prediction": forward_result,
             "ais_candidates": ranked_candidates,
-
             "alert": alert,
         }
 

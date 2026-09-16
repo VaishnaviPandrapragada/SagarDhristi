@@ -143,6 +143,7 @@ class AISSourceMatchingService:
                 "time",
                 "BaseDateTime",
                 "base_datetime",
+                "base_date_time",
             ],
         )
 
@@ -190,10 +191,21 @@ class AISSourceMatchingService:
 
         bounds = source_zone["bounds"]
 
-        min_latitude = float(bounds["min_latitude"])
-        max_latitude = float(bounds["max_latitude"])
-        min_longitude = float(bounds["min_longitude"])
-        max_longitude = float(bounds["max_longitude"])
+        min_latitude = float(
+            bounds["min_latitude"]
+        )
+
+        max_latitude = float(
+            bounds["max_latitude"]
+        )
+
+        min_longitude = float(
+            bounds["min_longitude"]
+        )
+
+        max_longitude = float(
+            bounds["max_longitude"]
+        )
 
         working = working[
             (working[latitude_column] >= min_latitude)
@@ -263,7 +275,6 @@ class AISSourceMatchingService:
             )
         )
 
-        # Keep one best observation per vessel.
         best_by_vessel = {}
 
         for candidate in candidates:
@@ -288,10 +299,6 @@ class AISSourceMatchingService:
 if __name__ == "__main__":
     print("\n===== PHASE B AIS SOURCE MATCHING TEST =====")
 
-    # Deterministic test data.
-    #
-    # The structure intentionally resembles the AIS fields
-    # used by the Phase-A pipeline.
     test_data = pd.DataFrame(
         [
             {
@@ -348,15 +355,18 @@ if __name__ == "__main__":
             f"  Rank {candidate['rank']}: "
             f"{candidate['vessel_id']}"
         )
+
         print(
             f"    Position : "
             f"{candidate['latitude']:.6f}, "
             f"{candidate['longitude']:.6f}"
         )
+
         print(
             f"    Distance : "
             f"{candidate['distance_to_source_km']:.3f} km"
         )
+
         print(
             f"    Time diff: "
             f"{candidate['time_difference_hours']:.2f} hours"
@@ -367,4 +377,6 @@ if __name__ == "__main__":
         f"{len(results)}"
     )
 
-    print("\n===== AIS SOURCE MATCHING TEST COMPLETE =====")
+    print(
+        "\n===== AIS SOURCE MATCHING TEST COMPLETE ====="
+    )
