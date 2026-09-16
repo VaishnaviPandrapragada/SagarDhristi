@@ -1,9 +1,10 @@
 from typing import Any, Dict
 
+import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from services.environment_service import EnvironmentalConditions
+from services.real_environment_service import RealEnvironmentService
 from services.hindcast_service import HindcastService
 from services.source_zone_service import SourceZoneService
 from services.source_time_service import SourceTimeService
@@ -17,6 +18,19 @@ router = APIRouter(
     tags=["Investigation"],
 )
 
+
+# ---------------------------------------------------------------------------
+# Dataset paths
+# ---------------------------------------------------------------------------
+
+ERA5_DATASET_PATH = "era5_guam_2022_test.nc"
+GLORYS_DATASET_PATH = "data/ocean_currents/glorys_guam_2022_test.nc"
+AIS_DATASET_PATH = "Guam_AIS_2022_FINAL.parquet"
+
+
+# ---------------------------------------------------------------------------
+# Request schema
+# ---------------------------------------------------------------------------
 
 class InvestigationRequest(BaseModel):
     spill_latitude: float = Field(
@@ -34,23 +48,23 @@ class InvestigationRequest(BaseModel):
     spill_timestamp: str
 
     wind_speed_knots: float = Field(
-        ...,
+        default=20.0,
         ge=0.0,
     )
 
     wind_direction_deg: float = Field(
-        ...,
+        default=90.0,
         ge=0.0,
         lt=360.0,
     )
 
     current_speed_knots: float = Field(
-        ...,
+        default=1.5,
         ge=0.0,
     )
 
     current_direction_deg: float = Field(
-        ...,
+        default=90.0,
         ge=0.0,
         lt=360.0,
     )
@@ -71,14 +85,18 @@ class InvestigationRequest(BaseModel):
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase-B analytical pipeline
+# ---------------------------------------------------------------------------
+
 @router.post(
     "/investigate",
     summary="Run Maritime Investigation",
     description=(
         "Runs the complete maritime investigation pipeline: "
-        "environment analysis, backward hindcast, source-zone estimation, "
-        "source-time estimation, forward drift prediction, AIS correlation, "
-        "evidence fusion, and alert generation."
+        "real environmental analysis, backward hindcast, source-zone "
+        "estimation, source-time estimation, forward drift prediction, "
+        "real AIS correlation, evidence fusion, and alert generation."
     ),
 )
 def run_investigation(
@@ -88,34 +106,36 @@ def run_investigation(
     Run the complete maritime investigation pipeline.
 
     Investigation pipeline:
-        Environment
+        Real ERA5 + GLORYS
+        -> Environmental Conditions
         -> Backward Hindcast
         -> Source Zone
         -> Source Time
         -> Forward Drift
-        -> AIS Matching
+        -> Real AIS Matching
         -> Evidence Fusion
         -> Alert
     """
 
     try:
-        # --------------------------------------------------
-        # 1. Environmental conditions
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 1. Real environmental data
+        # ---------------------------------------------------------------
 
-        environment = EnvironmentalConditions(
+        environment_service = RealEnvironmentService(
+            era5_dataset_path=ERA5_DATASET_PATH,
+            glorys_dataset_path=GLORYS_DATASET_PATH,
+        )
+
+        environment = environment_service.get_environment(
             latitude=request.spill_latitude,
             longitude=request.spill_longitude,
             timestamp=request.spill_timestamp,
-            wind_speed_knots=request.wind_speed_knots,
-            wind_direction_deg=request.wind_direction_deg,
-            current_speed_knots=request.current_speed_knots,
-            current_direction_deg=request.current_direction_deg,
         )
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 2. Backward hindcast
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         hindcast_service = HindcastService(
             particle_count=100,
@@ -132,21 +152,21 @@ def run_investigation(
 
         source_particles = hindcast_result["source_particles"]
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 3. Probable source zone
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         source_zone_service = SourceZoneService(
-            containment_percent=90.0
+            containment_percent=90.0,
         )
 
         source_zone = source_zone_service.calculate_source_zone(
-            source_particles=source_particles
+            source_particles=source_particles,
         )
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 4. Source-time estimation
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         source_time_service = SourceTimeService()
 
@@ -155,9 +175,11 @@ def run_investigation(
             lookback_hours=request.lookback_hours,
         )
 
-        # --------------------------------------------------
+        source_time_value = source_time["estimated_source_time"]
+
+        # ---------------------------------------------------------------
         # 5. Forward drift prediction
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         source_center = source_zone["center"]
 
@@ -167,61 +189,61 @@ def run_investigation(
         )
 
         forward_result = forward_service.forward_drift(
-            source_latitude=float(
-                source_center["latitude"]
-            ),
-            source_longitude=float(
-                source_center["longitude"]
-            ),
+            source_latitude=source_center["latitude"],
+            source_longitude=source_center["longitude"],
             environment=environment,
             forecast_hours=request.forecast_hours,
             time_step_hours=request.time_step_hours,
         )
 
-        # --------------------------------------------------
-        # 6. AIS matching
-        #
-        # For the API integration test we use deterministic
-        # AIS records. The production path can replace this
-        # dataframe with the actual Phase-A AIS dataset.
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 6. Real AIS source matching
+        # ---------------------------------------------------------------
 
-        import pandas as pd
-
-        source_time_value = source_time[
-            "estimated_source_time"
-        ]
-
-        test_ais = pd.DataFrame(
-            [
-                {
-                    "MMSI": "SIM030012",
-                    "LAT": -19.719000,
-                    "LON": 115.387000,
-                    "BaseDateTime": source_time_value,
-                },
-                {
-                    "MMSI": "SIM030013",
-                    "LAT": -19.720000,
-                    "LON": 115.388000,
-                    "BaseDateTime": source_time_value,
-                },
-            ]
+        ais_dataframe = pd.read_parquet(
+            AIS_DATASET_PATH,
+            columns=[
+                "mmsi",
+                "base_date_time",
+                "latitude",
+                "longitude",
+            ],
         )
 
+        ais_dataframe["base_date_time"] = pd.to_datetime(
+            ais_dataframe["base_date_time"],
+            utc=True,
+            errors="coerce",
+        )
+
+        source_time_timestamp = pd.to_datetime(
+            source_time_value,
+            utc=True,
+        )
+
+        time_tolerance = pd.Timedelta(hours=1.0)
+
+        start_time = source_time_timestamp - time_tolerance
+        end_time = source_time_timestamp + time_tolerance
+
+        ais_dataframe = ais_dataframe[
+            (ais_dataframe["base_date_time"] >= start_time)
+            & (ais_dataframe["base_date_time"] <= end_time)
+        ].copy()
+
         ais_service = AISSourceMatchingService(
-            time_tolerance_hours=1.0
+            time_tolerance_hours=1.0,
         )
 
         ais_candidates = ais_service.match_vessels(
-            dataframe=test_ais,
+            dataframe=ais_dataframe,
             source_zone=source_zone,
             estimated_source_time=source_time_value,
         )
 
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
         # 7. Evidence fusion
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
 
         evidence_service = PhaseBEvidenceService()
 
@@ -229,9 +251,9 @@ def run_investigation(
             ais_candidates
         )
 
-        # --------------------------------------------------
-        # 8. Backend alert
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 8. Alert generation
+        # ---------------------------------------------------------------
 
         alert_service = AlertService()
 
@@ -250,54 +272,29 @@ def run_investigation(
             ranked_candidates=ranked_candidates,
         )
 
-        # --------------------------------------------------
-        # 9. Complete response
-        # --------------------------------------------------
+        # ---------------------------------------------------------------
+        # 9. Final response
+        # ---------------------------------------------------------------
 
         return {
             "phase": "Investigation",
             "status": "success",
-
             "spill": {
                 "latitude": request.spill_latitude,
                 "longitude": request.spill_longitude,
                 "timestamp": request.spill_timestamp,
             },
-
             "environment": environment.to_dict(),
-
             "hindcast": {
-                "particle_count": hindcast_result[
-                    "particle_count"
-                ],
-                "lookback_hours": hindcast_result[
-                    "lookback_hours"
-                ],
-                "time_step_hours": hindcast_result[
-                    "time_step_hours"
-                ],
+                "particle_count": hindcast_result["particle_count"],
+                "lookback_hours": request.lookback_hours,
+                "time_step_hours": request.time_step_hours,
                 "drift": hindcast_result["drift"],
             },
-
             "source_zone": source_zone,
-
             "source_time": source_time,
-
-            "forward_prediction": {
-                "particle_count": forward_result[
-                    "particle_count"
-                ],
-                "forecast_hours": forward_result[
-                    "forecast_hours"
-                ],
-                "time_step_hours": forward_result[
-                    "time_step_hours"
-                ],
-                "drift": forward_result["drift"],
-            },
-
+            "forward_prediction": forward_result,
             "ais_candidates": ranked_candidates,
-
             "alert": alert,
         }
 
