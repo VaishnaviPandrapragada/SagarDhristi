@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import numpy as np
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -20,21 +19,22 @@ MODEL_PATH = (
     / "unet_segmentation.pth"
 )
 
+IMAGE_SIZE = 128
+
 
 transform = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.ToTensor()
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.ToTensor(),
 ])
 
 
 def load_segmentation_model():
-
     model = create_model()
 
     model.load_state_dict(
         torch.load(
             MODEL_PATH,
-            map_location=DEVICE
+            map_location=DEVICE,
         )
     )
 
@@ -45,22 +45,16 @@ def load_segmentation_model():
 
 
 def predict_segmentation(image_path):
-
     model = load_segmentation_model()
 
     image = Image.open(image_path).convert("L")
-
     original_size = image.size
 
     image_tensor = transform(image)
-
-    image_tensor = image_tensor.unsqueeze(0)
-    image_tensor = image_tensor.to(DEVICE)
+    image_tensor = image_tensor.unsqueeze(0).to(DEVICE)
 
     with torch.no_grad():
-
         logits = model(image_tensor)
-
         probabilities = torch.sigmoid(logits)
 
         mask = (
@@ -74,5 +68,5 @@ def predict_segmentation(image_path):
         "confidence": float(
             probabilities.mean().item()
         ),
-        "original_size": original_size
+        "original_size": original_size,
     }
