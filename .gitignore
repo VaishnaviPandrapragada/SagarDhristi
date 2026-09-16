@@ -1,4 +1,3 @@
-@"
 __pycache__/
 *.pyc
 *.pyo
@@ -14,4 +13,5 @@ venv/
 
 .DS_Store
 Thumbs.db
-"@ | Set-Content .gitignore
+
+node_modules/
