@@ -14,12 +14,11 @@ from services.alert_service import AlertService
 
 
 router = APIRouter(
-    prefix="/phase-b",
-    tags=["Phase B - Hindcast & Source Estimation"],
+    tags=["Investigation"],
 )
 
 
-class PhaseBRequest(BaseModel):
+class InvestigationRequest(BaseModel):
     spill_latitude: float = Field(
         ...,
         ge=-90.0,
@@ -72,18 +71,29 @@ class PhaseBRequest(BaseModel):
     )
 
 
-@router.post("/analyze")
-def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
+@router.post(
+    "/investigate",
+    summary="Run Maritime Investigation",
+    description=(
+        "Runs the complete maritime investigation pipeline: "
+        "environment analysis, backward hindcast, source-zone estimation, "
+        "source-time estimation, forward drift prediction, AIS correlation, "
+        "evidence fusion, and alert generation."
+    ),
+)
+def run_investigation(
+    request: InvestigationRequest,
+) -> Dict[str, Any]:
     """
-    Run the complete Phase-B analytical pipeline.
+    Run the complete maritime investigation pipeline.
 
-    Phase B:
+    Investigation pipeline:
         Environment
         -> Backward Hindcast
         -> Source Zone
         -> Source Time
         -> Forward Drift
-        -> AIS matching
+        -> AIS Matching
         -> Evidence Fusion
         -> Alert
     """
@@ -120,9 +130,7 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
             time_step_hours=request.time_step_hours,
         )
 
-        source_particles = (
-            hindcast_result["source_particles"]
-        )
+        source_particles = hindcast_result["source_particles"]
 
         # --------------------------------------------------
         # 3. Probable source zone
@@ -132,10 +140,8 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
             containment_percent=90.0
         )
 
-        source_zone = (
-            source_zone_service.calculate_source_zone(
-                source_particles=source_particles
-            )
+        source_zone = source_zone_service.calculate_source_zone(
+            source_particles=source_particles
         )
 
         # --------------------------------------------------
@@ -144,11 +150,9 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
 
         source_time_service = SourceTimeService()
 
-        source_time = (
-            source_time_service.estimate_source_time(
-                spill_timestamp=request.spill_timestamp,
-                lookback_hours=request.lookback_hours,
-            )
+        source_time = source_time_service.estimate_source_time(
+            spill_timestamp=request.spill_timestamp,
+            lookback_hours=request.lookback_hours,
         )
 
         # --------------------------------------------------
@@ -221,10 +225,8 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
 
         evidence_service = PhaseBEvidenceService()
 
-        ranked_candidates = (
-            evidence_service.rank_candidates(
-                ais_candidates
-            )
+        ranked_candidates = evidence_service.rank_candidates(
+            ais_candidates
         )
 
         # --------------------------------------------------
@@ -253,7 +255,7 @@ def analyze_phase_b(request: PhaseBRequest) -> Dict[str, Any]:
         # --------------------------------------------------
 
         return {
-            "phase": "B",
+            "phase": "Investigation",
             "status": "success",
 
             "spill": {
