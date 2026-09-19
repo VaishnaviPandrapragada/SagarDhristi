@@ -1,1 +1,18 @@
-pandas numpy openpyxl scikit-learn torch torchvision segmentation-models-pytorch fastapi uvicorn pydantic python-multipart pillow opencv-python matplotlib albumentations
+pandas
+numpy
+openpyxl
+scikit-learn
+torch
+torchvision
+segmentation-models-pytorch
+fastapi
+uvicorn
+pydantic
+python-multipart
+pillow
+opencv-python
+matplotlib
+albumentations
+xarray
+netCDF4
+pyarrow

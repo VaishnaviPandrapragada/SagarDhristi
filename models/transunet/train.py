@@ -1,418 +1,484 @@
 from pathlib import Path
+import random
 
 import numpy as np
+from PIL import Image
+
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from sklearn.model_selection import train_test_split
+from torch.utils.data import Dataset, DataLoader
 
-from .model import create_model
-from .dataset import TransUNetDataset, collect_samples
+from models.transunet.model import create_model
 
 
 # ============================================================
-# Configuration
+# PATHS
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-DATASET_DIR = PROJECT_ROOT / "data"
+# Local training dataset location
+IMAGE_ROOT = Path(r"D:\images")
+MASK_ROOT = Path(r"D:\masks")
 
-WEIGHTS_DIR = (
-    Path(__file__).resolve().parent
-    / "weights"
-)
+# Portable fallback if dataset is placed inside the project
+if not (IMAGE_ROOT / "train").exists():
+    IMAGE_ROOT = PROJECT_ROOT / "images"
+    MASK_ROOT = PROJECT_ROOT / "masks"
 
-BEST_MODEL_PATH = (
-    WEIGHTS_DIR
-    / "transunet_best.pth"
-)
+
+# ============================================================
+# TRAINING CONFIGURATION
+# Same dataset scale as U-Net / DeepLabV3+
+# ============================================================
 
 IMG_SIZE = 128
-BATCH_SIZE = 16
+BATCH_SIZE = 8
+
 EPOCHS = 10
+TRAIN_LIMIT = 2000
+VAL_LIMIT = 400
+
 LEARNING_RATE = 1e-4
 RANDOM_STATE = 42
 
 
 # ============================================================
-# Device
+# OUTPUT
+# ============================================================
+
+WEIGHTS_DIR = (
+    Path(__file__).resolve().parent / "weights"
+)
+
+BEST_MODEL_PATH = (
+    WEIGHTS_DIR / "transunet_segmentation_best.pth"
+)
+
+WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ============================================================
+# DEVICE
 # ============================================================
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-print("=" * 60)
-print("TRANSUNET TRAINING")
-print("=" * 60)
 
-print(f"Device: {device}")
+# ============================================================
+# REPRODUCIBILITY
+# ============================================================
+
+random.seed(RANDOM_STATE)
+np.random.seed(RANDOM_STATE)
+torch.manual_seed(RANDOM_STATE)
+
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(RANDOM_STATE)
 
 
 # ============================================================
-# Prepare directories
+# DATASET PAIR COLLECTION
 # ============================================================
 
-WEIGHTS_DIR.mkdir(
-    parents=True,
-    exist_ok=True
-)
+def collect_pairs(image_dir, mask_dir):
+    pairs = []
+
+    for path in sorted(image_dir.iterdir()):
+        if (
+            path.is_file()
+            and path.suffix.lower()
+            in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+        ):
+            mask_path = mask_dir / path.name
+
+            if mask_path.exists():
+                pairs.append((path, mask_path))
+
+    return pairs
 
 
 # ============================================================
-# Transform
+# DATASET
 # ============================================================
 
-transform = transforms.Compose([
-    transforms.Resize(
-        (IMG_SIZE, IMG_SIZE)
-    ),
+class SegmentationDataset(Dataset):
 
-    transforms.ToTensor(),
+    def __init__(self, pairs):
+        self.pairs = pairs
 
-    transforms.Normalize(
-        mean=(0.485, 0.456, 0.406),
-        std=(0.229, 0.224, 0.225)
+    def __len__(self):
+        return len(self.pairs)
+
+    def __getitem__(self, index):
+
+        image_path, mask_path = self.pairs[index]
+
+        # ----------------------------------------------------
+        # Image
+        # ----------------------------------------------------
+
+        image = (
+            Image.open(image_path)
+            .convert("RGB")
+            .resize(
+                (IMG_SIZE, IMG_SIZE),
+                Image.Resampling.BILINEAR,
+            )
+        )
+
+        # ----------------------------------------------------
+        # Mask
+        # ----------------------------------------------------
+
+        mask = (
+            Image.open(mask_path)
+            .convert("L")
+            .resize(
+                (IMG_SIZE, IMG_SIZE),
+                Image.Resampling.NEAREST,
+            )
+        )
+
+        # ----------------------------------------------------
+        # Convert image to float [0, 1]
+        # ----------------------------------------------------
+
+        image = (
+            np.asarray(
+                image,
+                dtype=np.float32,
+            )
+            / 255.0
+        )
+
+        # ----------------------------------------------------
+        # Convert mask to binary {0, 1}
+        # ----------------------------------------------------
+
+        mask = (
+            np.asarray(
+                mask,
+                dtype=np.float32,
+            )
+            > 127
+        ).astype(np.float32)
+
+        # ----------------------------------------------------
+        # ImageNet normalization
+        # ----------------------------------------------------
+
+        mean = np.array(
+            [0.485, 0.456, 0.406],
+            dtype=np.float32,
+        )
+
+        std = np.array(
+            [0.229, 0.224, 0.225],
+            dtype=np.float32,
+        )
+
+        image = (image - mean) / std
+
+        # ----------------------------------------------------
+        # Convert to tensors
+        # ----------------------------------------------------
+
+        image = (
+            torch.from_numpy(image)
+            .permute(2, 0, 1)
+            .float()
+        )
+
+        mask = (
+            torch.from_numpy(mask)
+            .unsqueeze(0)
+            .float()
+        )
+
+        return image, mask
+
+
+# ============================================================
+# DICE LOSS
+# ============================================================
+
+def dice_loss(logits, target):
+
+    probabilities = torch.sigmoid(logits)
+
+    intersection = (
+        probabilities * target
+    ).sum(dim=(1, 2, 3))
+
+    denominator = (
+        probabilities.sum(dim=(1, 2, 3))
+        + target.sum(dim=(1, 2, 3))
     )
-])
+
+    dice = (
+        (2.0 * intersection + 1.0)
+        / (denominator + 1.0)
+    )
+
+    return 1.0 - dice.mean()
 
 
 # ============================================================
-# Load samples
+# TRAIN / VALIDATION LOOP
 # ============================================================
 
-print("\nLoading dataset...")
+def run_epoch(model, loader, optimizer=None):
 
-samples = collect_samples(
-    DATASET_DIR,
-    samples_per_class=500
-)
+    training = optimizer is not None
 
-print(f"Total samples: {len(samples)}")
+    model.train(training)
 
+    loss_sum = 0.0
+    dice_sum = 0.0
+    iou_sum = 0.0
 
-# ============================================================
-# Labels
-# ============================================================
+    context = (
+        torch.enable_grad()
+        if training
+        else torch.no_grad()
+    )
 
-labels = np.array([
-    label
-    for _, label in samples
-])
+    with context:
 
-
-# ============================================================
-# Train / Validation / Test split
-# ============================================================
-
-train_samples, temp_samples = train_test_split(
-    samples,
-    test_size=0.30,
-    random_state=RANDOM_STATE,
-    stratify=labels
-)
-
-temp_labels = np.array([
-    label
-    for _, label in temp_samples
-])
-
-val_samples, test_samples = train_test_split(
-    temp_samples,
-    test_size=0.50,
-    random_state=RANDOM_STATE,
-    stratify=temp_labels
-)
-
-
-print("\nDataset split:")
-print(f"Train      : {len(train_samples)}")
-print(f"Validation : {len(val_samples)}")
-print(f"Test       : {len(test_samples)}")
-
-
-# ============================================================
-# Datasets
-# ============================================================
-
-train_dataset = TransUNetDataset(
-    train_samples,
-    transform=transform
-)
-
-val_dataset = TransUNetDataset(
-    val_samples,
-    transform=transform
-)
-
-test_dataset = TransUNetDataset(
-    test_samples,
-    transform=transform
-)
-
-
-# ============================================================
-# DataLoaders
-# ============================================================
-
-train_loader = DataLoader(
-    train_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=True,
-    num_workers=0
-)
-
-val_loader = DataLoader(
-    val_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=False,
-    num_workers=0
-)
-
-test_loader = DataLoader(
-    test_dataset,
-    batch_size=BATCH_SIZE,
-    shuffle=False,
-    num_workers=0
-)
-
-
-# ============================================================
-# Model
-# ============================================================
-
-print("\nCreating TransUNet model...")
-
-model = create_model()
-
-model.to(device)
-
-print("Model created successfully.")
-
-
-# ============================================================
-# Loss and optimizer
-# ============================================================
-
-criterion = nn.CrossEntropyLoss()
-
-optimizer = torch.optim.Adam(
-    model.parameters(),
-    lr=LEARNING_RATE
-)
-
-
-# ============================================================
-# Validation function
-# ============================================================
-
-def validate():
-
-    model.eval()
-
-    total_loss = 0.0
-    correct = 0
-    total = 0
-
-    with torch.no_grad():
-
-        for images, labels_batch in val_loader:
+        for batch_index, (images, masks) in enumerate(loader):
 
             images = images.to(device)
-            labels_batch = labels_batch.to(device)
+            masks = masks.to(device)
 
-            outputs = model(images)
+            if training:
+                optimizer.zero_grad(
+                    set_to_none=True
+                )
 
-            loss = criterion(
-                outputs,
-                labels_batch
+            logits = model(images)
+
+            bce = nn.functional.binary_cross_entropy_with_logits(
+                logits,
+                masks,
             )
 
-            total_loss += (
-                loss.item()
-                * images.size(0)
+            dice = dice_loss(
+                logits,
+                masks,
             )
 
-            predictions = torch.argmax(
-                outputs,
-                dim=1
+            loss = (
+                0.5 * bce
+                + 0.5 * dice
             )
 
-            correct += (
-                predictions == labels_batch
+            if training:
+
+                loss.backward()
+
+                optimizer.step()
+
+            # ------------------------------------------------
+            # Metrics
+            # ------------------------------------------------
+
+            predictions = (
+                torch.sigmoid(logits) >= 0.5
+            ).float()
+
+            intersection = (
+                predictions * masks
             ).sum().item()
 
-            total += labels_batch.size(0)
+            union = (
+                (predictions + masks) > 0
+            ).float().sum().item()
 
-    avg_loss = total_loss / total
-    accuracy = correct / total
+            prediction_pixels = (
+                predictions.sum().item()
+            )
 
-    return avg_loss, accuracy
+            mask_pixels = (
+                masks.sum().item()
+            )
 
+            batch_dice = (
+                2.0 * intersection
+                / (
+                    prediction_pixels
+                    + mask_pixels
+                    + 1e-8
+                )
+            )
 
-# ============================================================
-# Training
-# ============================================================
+            batch_iou = (
+                intersection
+                / (union + 1e-8)
+            )
 
-best_val_accuracy = 0.0
+            loss_sum += loss.item()
+            dice_sum += batch_dice
+            iou_sum += batch_iou
 
+            # ------------------------------------------------
+            # Progress
+            # ------------------------------------------------
 
-print("\nStarting training...\n")
+            if training and (
+                batch_index == 0
+                or (batch_index + 1) % 25 == 0
+            ):
+                print(
+                    f"    batch {batch_index + 1}/"
+                    f"{len(loader)} | "
+                    f"loss {loss.item():.4f}"
+                )
 
+    count = max(len(loader), 1)
 
-for epoch in range(EPOCHS):
-
-    model.train()
-
-    running_loss = 0.0
-    correct = 0
-    total = 0
-
-    for images, labels_batch in train_loader:
-
-        images = images.to(device)
-        labels_batch = labels_batch.to(device)
-
-        # Clear gradients
-        optimizer.zero_grad()
-
-        # Forward pass
-        outputs = model(images)
-
-        # Loss
-        loss = criterion(
-            outputs,
-            labels_batch
-        )
-
-        # Backpropagation
-        loss.backward()
-
-        # Update weights
-        optimizer.step()
-
-        # Statistics
-        running_loss += (
-            loss.item()
-            * images.size(0)
-        )
-
-        predictions = torch.argmax(
-            outputs,
-            dim=1
-        )
-
-        correct += (
-            predictions == labels_batch
-        ).sum().item()
-
-        total += labels_batch.size(0)
-
-    train_loss = running_loss / total
-    train_accuracy = correct / total
-
-    val_loss, val_accuracy = validate()
-
-    print(
-        f"Epoch [{epoch + 1}/{EPOCHS}] "
-        f"| Train Loss: {train_loss:.4f} "
-        f"| Train Acc: {train_accuracy:.4f} "
-        f"| Val Loss: {val_loss:.4f} "
-        f"| Val Acc: {val_accuracy:.4f}"
+    return (
+        loss_sum / count,
+        dice_sum / count,
+        iou_sum / count,
     )
 
-    # Save best model
-    if val_accuracy > best_val_accuracy:
 
-        best_val_accuracy = val_accuracy
+# ============================================================
+# MAIN
+# ============================================================
 
-        torch.save(
-            model.state_dict(),
-            BEST_MODEL_PATH
+def main():
+
+    train_pairs = collect_pairs(
+        IMAGE_ROOT / "train",
+        MASK_ROOT / "train",
+    )[:TRAIN_LIMIT]
+
+    validation_pairs = collect_pairs(
+        IMAGE_ROOT / "val",
+        MASK_ROOT / "val",
+    )[:VAL_LIMIT]
+
+    if not train_pairs or not validation_pairs:
+
+        raise FileNotFoundError(
+            "Paired dataset not found.\n"
+            f"Images: {IMAGE_ROOT}\n"
+            f"Masks: {MASK_ROOT}"
+        )
+
+    # --------------------------------------------------------
+    # Header
+    # --------------------------------------------------------
+
+    print("=" * 70)
+    print("TRANSUNET SEGMENTATION TRAINING")
+    print("=" * 70)
+
+    print("Device:", device)
+    print("Training pairs:", len(train_pairs))
+    print("Validation pairs:", len(validation_pairs))
+    print("Image size:", f"{IMG_SIZE}x{IMG_SIZE}")
+    print("Batch size:", BATCH_SIZE)
+    print("Epochs:", EPOCHS)
+    print("Learning rate:", LEARNING_RATE)
+
+    # --------------------------------------------------------
+    # DataLoaders
+    # --------------------------------------------------------
+
+    train_loader = DataLoader(
+        SegmentationDataset(train_pairs),
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+        num_workers=0,
+    )
+
+    validation_loader = DataLoader(
+        SegmentationDataset(validation_pairs),
+        batch_size=BATCH_SIZE,
+        shuffle=False,
+        num_workers=0,
+    )
+
+    # --------------------------------------------------------
+    # Model
+    # --------------------------------------------------------
+
+    print("\nCreating TransUNet model...")
+
+    model = create_model().to(device)
+
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=LEARNING_RATE,
+    )
+
+    # --------------------------------------------------------
+    # Training
+    # --------------------------------------------------------
+
+    best_validation_dice = -1.0
+
+    for epoch in range(1, EPOCHS + 1):
+
+        print()
+        print(f"Epoch {epoch}/{EPOCHS}")
+
+        train_loss, train_dice, train_iou = run_epoch(
+            model,
+            train_loader,
+            optimizer,
+        )
+
+        validation_loss, validation_dice, validation_iou = run_epoch(
+            model,
+            validation_loader,
         )
 
         print(
-            f"  ✓ Best model saved "
-            f"(Val Acc: {val_accuracy:.4f})"
+            f"Epoch {epoch}/{EPOCHS} | "
+            f"Train Loss {train_loss:.4f} | "
+            f"Train Dice {train_dice:.4f} | "
+            f"Train IoU {train_iou:.4f} | "
+            f"Val Loss {validation_loss:.4f} | "
+            f"Val Dice {validation_dice:.4f} | "
+            f"Val IoU {validation_iou:.4f}"
         )
 
+        # ----------------------------------------------------
+        # Save best checkpoint
+        # ----------------------------------------------------
 
-# ============================================================
-# Load best model
-# ============================================================
+        if validation_dice > best_validation_dice:
 
-print("\nLoading best model...")
+            best_validation_dice = validation_dice
 
-model.load_state_dict(
-    torch.load(
-        BEST_MODEL_PATH,
-        map_location=device
+            torch.save(
+                model.state_dict(),
+                BEST_MODEL_PATH,
+            )
+
+            print(
+                "  ✓ Best segmentation model saved"
+            )
+
+    # --------------------------------------------------------
+    # Final result
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 70)
+    print(
+        "Best validation Dice:",
+        f"{best_validation_dice:.4f}",
     )
-)
-
-model.eval()
-
-
-# ============================================================
-# Final Test
-# ============================================================
-
-correct = 0
-total = 0
-
-all_predictions = []
-all_labels = []
+    print("Saved:", BEST_MODEL_PATH)
+    print("=" * 70)
 
 
-with torch.no_grad():
-
-    for images, labels_batch in test_loader:
-
-        images = images.to(device)
-        labels_batch = labels_batch.to(device)
-
-        outputs = model(images)
-
-        predictions = torch.argmax(
-            outputs,
-            dim=1
-        )
-
-        correct += (
-            predictions == labels_batch
-        ).sum().item()
-
-        total += labels_batch.size(0)
-
-        all_predictions.extend(
-            predictions.cpu().numpy()
-        )
-
-        all_labels.extend(
-            labels_batch.cpu().numpy()
-        )
-
-
-test_accuracy = correct / total
-
-
-print("\n" + "=" * 60)
-print("FINAL TEST RESULT")
-print("=" * 60)
-
-print(
-    f"Test Accuracy : {test_accuracy:.4f}"
-)
-
-print(
-    f"Test Accuracy : {test_accuracy * 100:.2f}%"
-)
-
-print("\nBest model saved at:")
-print(BEST_MODEL_PATH)
-
-print("\n" + "=" * 60)
-print("TRANSUNET TRAINING COMPLETED")
-print("=" * 60)
+if __name__ == "__main__":
+    main()

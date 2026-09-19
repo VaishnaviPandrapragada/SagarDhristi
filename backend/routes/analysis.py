@@ -5,8 +5,10 @@ from typing import Any, Dict
 import pandas as pd
 from fastapi import APIRouter, File, Form, UploadFile
 
-from services.segmentation_service import predict_segmentation
-from services.spill_geometry_service import calculate_spill_geometry
+from services.unet_service import predict_with_unet
+from services.deeplabv3_service import predict_with_deeplab
+from services.transunet_service import predict_with_transunet
+from services.orchestration_service import orchestrate_predictions
 
 from services.environment_service import EnvironmentalConditions
 from services.hindcast_service import HindcastService
@@ -21,26 +23,12 @@ from services.alert_service import AlertService
 router = APIRouter()
 
 
-# ============================================================
-# DEMO SCENE
-# ============================================================
-#
-# The PALSAR development images do not contain the geospatial
-# metadata required for automatic AIS/environment correlation.
-#
-# Therefore the demo uses one validated Guam 2022 scene.
-#
-# These values are DEVELOPMENT/DEMO METADATA and should not be
-# presented as metadata extracted from the uploaded PNG.
-# ============================================================
-
 DEMO_LATITUDE = 13.46321
 DEMO_LONGITUDE = 144.65858
 DEMO_TIMESTAMP = "2022-03-04T06:30:27Z"
 
 DEMO_WIND_SPEED_KNOTS = 20.0
 DEMO_WIND_DIRECTION_DEG = 90.0
-
 DEMO_CURRENT_SPEED_KNOTS = 1.5
 DEMO_CURRENT_DIRECTION_DEG = 90.0
 
@@ -49,37 +37,17 @@ DEMO_FORECAST_HOURS = 6.0
 DEMO_TIME_STEP_HOURS = 1.0
 
 
-# ============================================================
-# AIS DATASET
-# ============================================================
-
-AIS_DATASET_PATH = (
-    os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "..",
-            "Guam_AIS_2022_FINAL.parquet",
-        )
+AIS_DATASET_PATH = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "Guam_AIS_2022_FINAL.parquet",
     )
 )
 
 
 def load_ais_dataset() -> pd.DataFrame:
-    """
-    Load the real Guam AIS development dataset.
-
-    The parquet file uses:
-        mmsi
-        base_date_time
-        latitude
-        longitude
-        sog
-        cog
-        heading
-        ...
-    """
-
     if not os.path.exists(AIS_DATASET_PATH):
         raise FileNotFoundError(
             f"AIS dataset not found: {AIS_DATASET_PATH}"
@@ -88,27 +56,240 @@ def load_ais_dataset() -> pd.DataFrame:
     return pd.read_parquet(AIS_DATASET_PATH)
 
 
-# ============================================================
-# ANALYZE
-# ============================================================
+def _confidence(result: Dict[str, Any]) -> float | None:
+    for key in (
+        "confidence",
+        "model_confidence",
+        "score",
+        "probability",
+    ):
+        value = result.get(key)
+
+        if value is not None:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                pass
+
+    return None
+
+
+def _detected(result: Dict[str, Any]) -> bool | None:
+    for key in (
+        "oil_spill_detected",
+        "spill_detected",
+    ):
+        if key in result:
+            return bool(result[key])
+
+    if "class" in result:
+        try:
+            return int(result["class"]) == 1
+        except (TypeError, ValueError):
+            pass
+
+    if "prediction" in result:
+        value = result["prediction"]
+
+        if isinstance(value, bool):
+            return value
+
+        try:
+            return int(value) == 1
+        except (TypeError, ValueError):
+            pass
+
+    return None
+
+
+def _serialize_model_result(
+    key: str,
+    result: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    output = {
+        "key": key,
+        "name": {
+            "unet": "U-Net",
+            "deeplabv3": "DeepLabV3+",
+            "transunet": "TransUNet",
+        }[key],
+        "confidence": _confidence(result),
+        "detected": _detected(result),
+        "oil_spill_detected": _detected(result),
+        "class": result.get("class"),
+        "role": {
+            "unet": "Fine-grained segmentation",
+            "deeplabv3": "Multi-scale segmentation",
+            "transunet": "Global-context segmentation",
+        }[key],
+    }
+
+    for source_key in (
+        "mask_image",
+        "maskImage",
+        "mask_url",
+        "mask_data_url",
+    ):
+        if result.get(source_key):
+            output["mask_image"] = result[source_key]
+            break
+
+    for source_key in (
+        "area",
+        "area_pixels",
+        "spill_pixels",
+    ):
+        if result.get(source_key) is not None:
+            output["area"] = result[source_key]
+            break
+
+    return output
+
+
+def _build_orchestrator(
+    raw: Dict[str, Any],
+    models: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+
+    detected_values = [
+        models["unet"]["detected"],
+        models["deeplabv3"]["detected"],
+        models["transunet"]["detected"],
+    ]
+
+    valid = [
+        value
+        for value in detected_values
+        if value is not None
+    ]
+
+    spill_votes = sum(
+        value is True
+        for value in valid
+    )
+
+    no_spill_votes = sum(
+        value is False
+        for value in valid
+    )
+
+    total_models = len(valid)
+
+    if total_models >= 2 and spill_votes >= 2:
+        fallback_verdict = "MAJORITY_SPILL"
+        final_detected = True
+
+    elif total_models >= 2 and no_spill_votes >= 2:
+        fallback_verdict = "MAJORITY_NO_SPILL"
+        final_detected = False
+
+    else:
+        fallback_verdict = "MODEL_DISAGREEMENT"
+        final_detected = None
+
+    raw_verdict = (
+        raw.get("verdict")
+        or raw.get("decision")
+        or raw.get("status")
+    )
+
+    if raw_verdict in (
+        "MAJORITY_SPILL",
+        "MAJORITY_NO_SPILL",
+        "MODEL_DISAGREEMENT",
+    ):
+        verdict = raw_verdict
+    else:
+        verdict = fallback_verdict
+
+    if raw.get("spill_detected") is not None:
+        final_detected = bool(
+            raw["spill_detected"]
+        )
+
+    confidence = _confidence(raw)
+
+    if confidence is None:
+        confidences = [
+            model["confidence"]
+            for model in models.values()
+            if model["confidence"] is not None
+        ]
+
+        confidence = (
+            max(confidences)
+            if confidences
+            else None
+        )
+
+    agreement = raw.get(
+        "agreement",
+        raw.get("model_agreement"),
+    )
+
+    if agreement is None and total_models:
+        agreement = (
+            max(
+                spill_votes,
+                no_spill_votes,
+            )
+            / total_models
+        )
+
+    iou = raw.get(
+        "iou",
+        raw.get("mask_iou"),
+    )
+
+    return {
+        "verdict": verdict,
+        "spill_detected": final_detected,
+        "total_models": total_models,
+        "spill_votes": spill_votes,
+        "no_spill_votes": no_spill_votes,
+        "confidence": (
+            float(confidence)
+            if confidence is not None
+            else None
+        ),
+        "agreement": (
+            float(agreement)
+            if agreement is not None
+            else None
+        ),
+        "iou": (
+            float(iou)
+            if iou is not None
+            else None
+        ),
+        "decisions": raw.get(
+            "decisions",
+            [],
+        ),
+        "rule": raw.get(
+            "rule",
+            "Three independent model predictions are compared before the investigation continues.",
+        ),
+    }
+
 
 @router.post(
     "/analyze",
-    summary="Analyze SAR Scene",
+    summary="Run Complete SAR Investigation",
 )
 async def analyze_image(
     file: UploadFile = File(...),
 
-    # --------------------------------------------------------
-    # Optional metadata overrides
-    # --------------------------------------------------------
-    #
-    # Normally the frontend does NOT need to send these.
-    # The defaults create a one-click demo.
-    #
-    spill_latitude: float = Form(DEMO_LATITUDE),
-    spill_longitude: float = Form(DEMO_LONGITUDE),
-    spill_timestamp: str = Form(DEMO_TIMESTAMP),
+    spill_latitude: float = Form(
+        DEMO_LATITUDE
+    ),
+    spill_longitude: float = Form(
+        DEMO_LONGITUDE
+    ),
+    spill_timestamp: str = Form(
+        DEMO_TIMESTAMP
+    ),
 
     wind_speed_knots: float = Form(
         DEMO_WIND_SPEED_KNOTS
@@ -142,10 +323,9 @@ async def analyze_image(
     temp_path = None
 
     try:
-
-        # ====================================================
-        # 1. SAVE UPLOADED SAR IMAGE
-        # ====================================================
+        # ==================================================
+        # 1. SAVE UPLOADED IMAGE
+        # ==================================================
 
         with tempfile.NamedTemporaryFile(
             delete=False,
@@ -158,27 +338,68 @@ async def analyze_image(
 
             temp_path = temp_file.name
 
-        # ====================================================
-        # 2. SAR SEGMENTATION
-        # ====================================================
+        # ==================================================
+        # 2. THREE-MODEL VISION LAYER
+        # ==================================================
 
-        segmentation_result = (
-            predict_segmentation(temp_path)
+        # U-Net is executed exactly once.
+        unet_result = predict_with_unet(
+            temp_path
         )
 
-        mask = segmentation_result["mask"]
-
-        # ====================================================
-        # 3. SPILL GEOMETRY
-        # ====================================================
-
-        geometry = (
-            calculate_spill_geometry(mask)
+        deeplab_result = predict_with_deeplab(
+            temp_path
         )
 
-        spill_detected = geometry[
-            "spill_present"
-        ]
+        transunet_result = predict_with_transunet(
+            temp_path
+        )
+
+        models = {
+            "unet": _serialize_model_result(
+                "unet",
+                unet_result,
+            ),
+            "deeplabv3": _serialize_model_result(
+                "deeplabv3",
+                deeplab_result,
+            ),
+            "transunet": _serialize_model_result(
+                "transunet",
+                transunet_result,
+            ),
+        }
+
+        # ==================================================
+        # 3. ORCHESTRATOR
+        # ==================================================
+
+        raw_orchestrator = orchestrate_predictions(
+            unet_result,
+            deeplab_result,
+            transunet_result,
+        )
+
+        orchestrator = _build_orchestrator(
+            raw_orchestrator,
+            models,
+        )
+
+        spill_detected = (
+            orchestrator["spill_detected"]
+        )
+
+        # ==================================================
+        # 4. AUTHORITATIVE U-NET SEGMENTATION
+        # ==================================================
+
+        # The same U-Net result used above is reused here.
+        segmentation_result = unet_result
+
+        geometry = segmentation_result.get(
+            "geometry",
+            {},
+        )
 
         result: Dict[str, Any] = {
             "phase": "A+B",
@@ -186,97 +407,100 @@ async def analyze_image(
 
             "spill_detected": spill_detected,
 
+            "vision_models": models,
+
+            "orchestrator": orchestrator,
+
             "segmentation": {
-                "mask_available": True,
-                "mask_shape": list(
-                    mask.shape
+                "mask_available": bool(
+                    segmentation_result.get(
+                        "mask_image"
+                    )
                 ),
-                "model_confidence":
-                    segmentation_result[
-                        "confidence"
-                    ],
+
+                "mask_shape": segmentation_result.get(
+                    "mask_shape"
+                ),
+
+                "model_confidence": segmentation_result.get(
+                    "confidence"
+                ),
+
+                "spill_pixels": segmentation_result.get(
+                    "spill_pixels",
+                    geometry.get(
+                        "area_pixels",
+                        0,
+                    ),
+                ),
+
+                "coverage_ratio": segmentation_result.get(
+                    "coverage_ratio",
+                    geometry.get(
+                        "coverage_ratio",
+                        0.0,
+                    ),
+                ),
+
+                "mask_image": segmentation_result.get(
+                    "mask_image"
+                ),
+
+                "original_image_size": segmentation_result.get(
+                    "original_image_size"
+                ),
+
+                "model_input_size": segmentation_result.get(
+                    "model_input_size"
+                ),
+
+                "mask_threshold": 0.5,
+
+                "geometry": geometry,
             },
 
             "geometry": geometry,
 
             "spill": {
-                "latitude":
-                    spill_latitude,
-
-                "longitude":
-                    spill_longitude,
-
-                "timestamp":
-                    spill_timestamp,
-
-                "geometry":
-                    geometry,
+                "latitude": spill_latitude,
+                "longitude": spill_longitude,
+                "timestamp": spill_timestamp,
+                "geometry": geometry,
             },
 
             "attribution": {
-                "candidate_vessels": []
-            },
-
-            "demo_metadata": {
-                "enabled": True,
-                "note": (
-                    "Development SAR images "
-                    "do not contain the geospatial "
-                    "metadata required for automatic "
-                    "AIS correlation. The demo uses "
-                    "a validated Guam 2022 scene."
-                ),
+                "candidate_vessels": [],
             },
         }
 
-        # ====================================================
-        # 4. STOP IF NO SPILL
-        # ====================================================
+        # ==================================================
+        # 5. STOP IF NOT A SPILL
+        # ==================================================
 
-        if not spill_detected:
-
-            result["alert"] = {
-                "active": False,
-                "severity": "NONE",
-                "type": "NO_SPILL_DETECTED",
-                "title": "No Spill Detected",
-                "message": (
-                    "The segmentation model did not "
-                    "detect a spill region in this scene."
-                ),
-                "confidence":
-                    segmentation_result[
-                        "confidence"
-                    ],
-            }
-
+        if spill_detected is not True:
             return result
 
-        # ====================================================
-        # 5. ENVIRONMENT
-        # ====================================================
+        # ==================================================
+        # 6. ENVIRONMENT
+        # ==================================================
 
         environment = EnvironmentalConditions(
             latitude=spill_latitude,
             longitude=spill_longitude,
             timestamp=spill_timestamp,
-
-            wind_speed_knots=
-                wind_speed_knots,
-
-            wind_direction_deg=
-                wind_direction_deg,
-
-            current_speed_knots=
-                current_speed_knots,
-
-            current_direction_deg=
-                current_direction_deg,
+            wind_speed_knots=wind_speed_knots,
+            wind_direction_deg=wind_direction_deg,
+            current_speed_knots=current_speed_knots,
+            current_direction_deg=current_direction_deg,
         )
 
-        # ====================================================
-        # 6. BACKWARD HINDCAST
-        # ====================================================
+        result["environment"] = (
+            environment.to_dict()
+        )
+
+        # ==================================================
+        # 7. BACKWARD HINDCAST
+        # ==================================================
 
         hindcast_service = HindcastService(
             particle_count=100,
@@ -285,249 +509,149 @@ async def analyze_image(
 
         hindcast = (
             hindcast_service.backward_hindcast(
-                spill_latitude=
-                    spill_latitude,
-
-                spill_longitude=
-                    spill_longitude,
-
-                environment=
-                    environment,
-
-                lookback_hours=
-                    lookback_hours,
-
-                time_step_hours=
-                    time_step_hours,
+                spill_latitude=spill_latitude,
+                spill_longitude=spill_longitude,
+                environment=environment,
+                lookback_hours=lookback_hours,
+                time_step_hours=time_step_hours,
             )
         )
 
-        result["environment"] = {
-            "latitude":
-                spill_latitude,
+        result["hindcast"] = hindcast
 
-            "longitude":
-                spill_longitude,
+        # ==================================================
+        # 8. PROBABLE SOURCE ZONE
+        # ==================================================
 
-            "timestamp":
-                spill_timestamp,
-
-            "wind": {
-                "speed_knots":
-                    wind_speed_knots,
-
-                "direction_deg":
-                    wind_direction_deg,
-            },
-
-            "ocean_current": {
-                "speed_knots":
-                    current_speed_knots,
-
-                "direction_deg":
-                    current_direction_deg,
-            },
-        }
-
-        result["hindcast"] = {
-            "particle_count":
-                hindcast.get(
-                    "particle_count",
-                    100,
-                ),
-
-            "lookback_hours":
-                lookback_hours,
-
-            "time_step_hours":
-                time_step_hours,
-
-            "drift":
-                hindcast.get(
-                    "drift",
-                    {},
-                ),
-
-            "tracks":
-                hindcast.get(
-                    "tracks",
-                    [],
-                ),
-        }
-
-        # ====================================================
-        # 7. SOURCE ZONE
-        # ====================================================
-
-        source_zone_service = (
-            SourceZoneService(
-                containment_percent=90.0
-            )
+        source_zone_service = SourceZoneService(
+            containment_percent=90.0
         )
 
         source_zone = (
-            source_zone_service
-            .calculate_source_zone(
-                hindcast[
+            source_zone_service.calculate_source_zone(
+                source_particles=hindcast[
                     "source_particles"
                 ]
             )
         )
 
-        result["source_zone"] = (
-            source_zone
-        )
+        result["source_zone"] = source_zone
 
-        # ====================================================
-        # 8. SOURCE TIME
-        # ====================================================
+        # ==================================================
+        # 9. SOURCE TIME
+        # ==================================================
 
-        source_time_service = (
-            SourceTimeService()
-        )
+        source_time_service = SourceTimeService()
 
         source_time = (
-            source_time_service
-            .estimate_source_time(
+            source_time_service.estimate_source_time(
                 spill_timestamp,
                 lookback_hours,
             )
         )
 
-        result["source_time"] = (
-            source_time
-        )
+        result["source_time"] = source_time
 
-        # ====================================================
-        # 9. FORWARD DRIFT
-        # ====================================================
+        # ==================================================
+        # 10. FORWARD DRIFT
+        # ==================================================
 
-        source_center = (
-            source_zone["center"]
-        )
+        source_center = source_zone["center"]
 
-        forward_drift_service = (
-            ForwardDriftService(
-                particle_count=100,
-                wind_factor=0.03,
-            )
+        forward_service = ForwardDriftService(
+            particle_count=100,
+            wind_factor=0.03,
         )
 
         forward_prediction = (
-            forward_drift_service.forward_drift(
-                source_latitude=
-                    source_center[
-                        "latitude"
-                    ],
-
-                source_longitude=
-                    source_center[
-                        "longitude"
-                    ],
-
-                environment=
-                    environment,
-
-                forecast_hours=
-                    forecast_hours,
-
-                time_step_hours=
-                    time_step_hours,
+            forward_service.forward_drift(
+                source_latitude=float(
+                    source_center["latitude"]
+                ),
+                source_longitude=float(
+                    source_center["longitude"]
+                ),
+                environment=environment,
+                forecast_hours=forecast_hours,
+                time_step_hours=time_step_hours,
             )
         )
 
-        result[
-            "forward_prediction"
-        ] = forward_prediction
-
-        # ====================================================
-        # 10. REAL AIS CORRELATION
-        # ====================================================
-
-        ais_dataframe = (
-            load_ais_dataset()
+        result["forward_prediction"] = (
+            forward_prediction
         )
 
-        estimated_source_time = (
-            source_time[
-                "estimated_source_time"
-            ]
-        )
+        # ==================================================
+        # 11. REAL AIS CORRELATION
+        # ==================================================
 
-        ais_service = (
-            AISSourceMatchingService(
-                time_tolerance_hours=1.0,
-                spatial_radius_km=25.0,
-            )
+        ais_dataframe = load_ais_dataset()
+
+        estimated_source_time = source_time[
+            "estimated_source_time"
+        ]
+
+        ais_service = AISSourceMatchingService(
+            time_tolerance_hours=1.0,
+            spatial_radius_km=25.0,
         )
 
         ais_candidates = (
             ais_service.match_vessels(
-                dataframe=
-                    ais_dataframe,
-
-                source_zone=
-                    source_zone,
-
-                estimated_source_time=
-                    estimated_source_time,
+                dataframe=ais_dataframe,
+                source_zone=source_zone,
+                estimated_source_time=estimated_source_time,
             )
         )
 
-        result[
-            "ais_candidates"
-        ] = ais_candidates
+        # ==================================================
+        # 12. EVIDENCE FUSION
+        # ==================================================
 
-        # ====================================================
-        # 11. EVIDENCE FUSION
-        # ====================================================
-
-        evidence_service = (
-            PhaseBEvidenceService()
-        )
+        evidence_service = PhaseBEvidenceService()
 
         ranked_candidates = (
-            evidence_service
-            .rank_candidates(
+            evidence_service.rank_candidates(
                 ais_candidates
             )
         )
 
-        result[
-            "ranked_candidates"
-        ] = ranked_candidates
+        result["ais_candidates"] = (
+            ais_candidates
+        )
 
-        # ====================================================
-        # 12. ALERT
-        # ====================================================
+        result["ranked_candidates"] = (
+            ranked_candidates
+        )
 
-        alert_service = AlertService()
+        result["attribution"] = {
+            "candidate_vessels": ranked_candidates,
+        }
 
-        top_score = 0.0
+        # ==================================================
+        # 13. ALERT
+        # ==================================================
 
-        if ranked_candidates:
-
-            top_candidate = (
-                ranked_candidates[0]
-            )
-
-            top_score = float(
-                top_candidate.get(
+        top_score = (
+            float(
+                ranked_candidates[0].get(
                     "evidence_score",
                     0.0,
                 )
             )
+            if ranked_candidates
+            else 0.0
+        )
 
-        alert = (
-            alert_service.create_alert(
-                spill_detected=True,
-                confidence=top_score,
-                timestamp=spill_timestamp,
-                latitude=spill_latitude,
-                longitude=spill_longitude,
-                candidate_vessels=
-                    ranked_candidates,
-            )
+        alert_service = AlertService()
+
+        alert = alert_service.create_alert(
+            spill_detected=True,
+            confidence=top_score,
+            latitude=spill_latitude,
+            longitude=spill_longitude,
+            timestamp=spill_timestamp,
+            ranked_candidates=ranked_candidates,
         )
 
         result["alert"] = alert
@@ -535,7 +659,6 @@ async def analyze_image(
         return result
 
     except Exception as exc:
-
         return {
             "phase": "A+B",
             "status": "error",
@@ -543,11 +666,6 @@ async def analyze_image(
         }
 
     finally:
-
-        # ====================================================
-        # CLEAN TEMPORARY FILE
-        # ====================================================
-
         if (
             temp_path
             and os.path.exists(temp_path)

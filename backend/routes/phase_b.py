@@ -1,5 +1,5 @@
 from typing import Any, Dict
-
+from pathlib import Path
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -23,10 +23,19 @@ router = APIRouter(
 # Dataset paths
 # ---------------------------------------------------------------------------
 
-ERA5_DATASET_PATH = "era5_guam_2022_test.nc"
-GLORYS_DATASET_PATH = "data/ocean_currents/glorys_guam_2022_test.nc"
-AIS_DATASET_PATH = "Guam_AIS_2022_FINAL.parquet"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+ERA5_DATASET_PATH = str(
+    PROJECT_ROOT / "era5_guam_2022_test.nc"
+)
+
+GLORYS_DATASET_PATH = str(
+    PROJECT_ROOT / "data" / "ocean_currents" / "glorys_guam_2022_test.nc"
+)
+
+AIS_DATASET_PATH = str(
+    PROJECT_ROOT / "Guam_AIS_2022_FINAL.parquet"
+)
 
 # ---------------------------------------------------------------------------
 # Request schema
