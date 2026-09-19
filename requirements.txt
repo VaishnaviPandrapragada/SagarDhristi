@@ -1,9 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 pandas
 numpy
 openpyxl
 scikit-learn
-torch
-torchvision
+torch==2.14.0
+torchvision==0.29.0
 segmentation-models-pytorch
 fastapi
 uvicorn
