@@ -4,7 +4,7 @@ import torch
 from torchvision import transforms
 from PIL import Image
 
-from .model import UNetClassifier
+from .model import UNet
 
 
 # Device
@@ -12,7 +12,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # Model path
-MODEL_PATH = Path(__file__).resolve().parent / "weights" / "unet_classifier.pth"
+MODEL_PATH = Path(__file__).resolve().parent / "weights" / "unet_segmentation.pth"
 
 
 # Image preprocessing
@@ -21,10 +21,11 @@ transform = transforms.Compose([
     transforms.ToTensor()
 ])
 
+
 def load_model():
-    model = UNetClassifier(
+    model = UNet(
         in_channels=1,
-        num_classes=2
+        out_channels=1
     )
 
     model.load_state_dict(
@@ -45,11 +46,20 @@ def predict(image_path):
 
     with torch.no_grad():
         output = model(image_tensor)
-        prediction = output.argmax(dim=1).item()
+        probabilities = torch.sigmoid(output)
+        mask = (probabilities > 0.5).float()
+
+    # Determine whether the model detected any spill pixels
+    spill_pixels = mask.sum().item()
+    oil_spill_detected = spill_pixels > 0
+
+    prediction_class = 1 if oil_spill_detected else 0
 
     return {
-        "class": prediction,
-        "oil_spill_detected": prediction == 1
+        "class": prediction_class,
+        "oil_spill_detected": oil_spill_detected,
+        "mask": mask.squeeze().cpu().numpy(),
+        "spill_pixels": int(spill_pixels)
     }
 
 
@@ -62,3 +72,4 @@ if __name__ == "__main__":
     print("\nPrediction:")
     print(f"Class: {result['class']}")
     print(f"Oil spill detected: {result['oil_spill_detected']}")
+    print(f"Spill pixels: {result['spill_pixels']}")

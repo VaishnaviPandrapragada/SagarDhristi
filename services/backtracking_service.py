@@ -11,6 +11,13 @@ from services.rnn_service import (
     get_rnn_service
 )
 
+from services.behavior_service import (
+    analyze_behaviour
+)
+
+from services.evidence_service import (
+    fuse_evidence
+)
 
 # ============================================================
 # CONFIGURATION
@@ -733,6 +740,123 @@ class BacktrackingService:
             if result is None:
 
                 continue
+                        # ------------------------------------------------
+            # Behaviour analysis
+            # ------------------------------------------------
+            # IMPORTANT:
+            # Use only AIS observations available up to the
+            # spill event to avoid future-data leakage.
+            behaviour_df = (
+                vessel_df
+                .sort_values(
+                    "timestamp_utc"
+                )
+                .copy()
+            )
+
+            if event_time is not None:
+
+                event_timestamp = (
+                    pd.to_datetime(
+                        event_time,
+                        utc=True
+                    )
+                )
+
+                behaviour_df = behaviour_df[
+                    behaviour_df[
+                        "timestamp_utc"
+                    ]
+                    <= event_timestamp
+                ].copy()
+
+            # Focus behaviour analysis on the latest
+            # observations before the event.
+            behaviour_df = (
+                behaviour_df
+                .tail(30)
+                .copy()
+            )
+
+            behaviour_result = (
+                analyze_behaviour(
+                    behaviour_df
+                )
+            )
+
+            result[
+                "behaviour_score"
+            ] = float(
+                behaviour_result[
+                    "behaviour_score"
+                ]
+            )
+
+            result[
+                "behaviour_anomalies"
+            ] = behaviour_result[
+                "anomalies"
+            ]
+
+            result[
+                "behaviour_anomaly_count"
+            ] = int(
+                behaviour_result[
+                    "anomaly_count"
+                ]
+            )
+
+            result[
+                "behaviour_explanations"
+            ] = behaviour_result[
+                "explanations"
+            ]
+
+            # ------------------------------------------------
+            # Evidence fusion
+            # ------------------------------------------------
+
+            evidence_result = (
+                fuse_evidence(
+                    {
+                        "distance_to_spill_km":
+                            result[
+                                "distance_to_spill_km"
+                            ],
+
+                        "behaviour_score":
+                            result[
+                                "behaviour_score"
+                            ]
+                    }
+                )
+            )
+
+            result[
+                "evidence_score"
+            ] = float(
+                evidence_result[
+                    "evidence_score"
+                ]
+            )
+
+            result[
+                "evidence_level"
+            ] = evidence_result[
+                "evidence_level"
+            ]
+
+            result[
+                "evidence_signals"
+            ] = evidence_result[
+                "signals"
+            ]
+
+            result[
+                "evidence_explanations"
+            ] = evidence_result[
+                "explanations"
+            ]
 
             # ------------------------------------------------
             # Historical information
@@ -803,8 +927,9 @@ class BacktrackingService:
         results.sort(
             key=lambda item:
                 item[
-                    "distance_to_spill_km"
-                ]
+                    "evidence_score"
+                ],
+            reverse=True
         )
 
         # ----------------------------------------------------

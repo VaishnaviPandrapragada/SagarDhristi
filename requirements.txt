@@ -13,3 +13,6 @@ pillow
 opencv-python
 matplotlib
 albumentations
+xarray
+netCDF4
+pyarrow

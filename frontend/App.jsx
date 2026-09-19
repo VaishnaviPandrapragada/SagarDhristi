@@ -1,5 +1,13 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+} from "react";
+
+import {
+  AnimatePresence,
+  motion,
+} from "framer-motion";
 
 import Landing from "./screens/Landing.jsx";
 import Overview from "./screens/Overview.jsx";
@@ -29,69 +37,156 @@ import {
 
 import {
   ResultStage,
-  ApiStage,
   ReportStage,
 } from "./screens/Deliver.jsx";
 
-import { STAGES, stageIndex } from "./data/pipeline.js";
+import {
+  STAGES,
+  stageIndex,
+} from "./data/pipeline.js";
+
 import { CASE } from "./data/mock.js";
+
 
 const SCREENS = {
   overview: Overview,
   alerts: Alerts,
+
   sar: SarStage,
   preprocess: PreprocessStage,
   vision: VisionStage,
   orchestrator: OrchestratorStage,
+
   characterize: CharacterizeStage,
   environment: EnvironmentStage,
   drift: DriftStage,
+
   sourcetype: SourceTypeStage,
   spacetime: SpaceTimeStage,
   trajectory: TrajectoryStage,
   fusion: FusionStage,
   ranking: RankingStage,
+
   result: ResultStage,
-  api: ApiStage,
   report: ReportStage,
 };
 
-export default function App() {
-  const [view, setView] = useState("landing");
 
-  const go = useCallback((id) => {
-    setView(id);
-  }, []);
+export default function App() {
+  const [view, setView] =
+    useState("landing");
+
+  const [analysis, setAnalysis] =
+    useState(null);
+
+  const [uploadedFile, setUploadedFile] =
+    useState(null);
+
+  const [uploadedImage, setUploadedImage] =
+    useState(null);
+
+
+  const go = useCallback(
+    (id) => {
+      setView(id);
+    },
+    []
+  );
+
+
+  useEffect(() => {
+    if (!uploadedFile) {
+      setUploadedImage(null);
+      return undefined;
+    }
+
+    const url =
+      URL.createObjectURL(uploadedFile);
+
+    setUploadedImage(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [uploadedFile]);
+
 
   useEffect(() => {
     if (view !== "landing") {
-      window.scrollTo({ top: 0 });
+      window.scrollTo({
+        top: 0,
+      });
     }
   }, [view]);
 
+
+  const startNewInvestigation =
+    useCallback(() => {
+      setAnalysis(null);
+      setUploadedFile(null);
+      setUploadedImage(null);
+      go("sar");
+    }, [go]);
+
+
   if (view === "landing") {
-    return <Landing onStart={() => go("overview")} />;
+    return (
+      <Landing
+        onStart={() => {
+          setAnalysis(null);
+          setUploadedFile(null);
+          setUploadedImage(null);
+          go("overview");
+        }}
+      />
+    );
   }
 
-  const Screen = SCREENS[view] || Overview;
 
-  const stage = STAGES.find((s) => s.id === view);
+  const Screen =
+    SCREENS[view] || Overview;
 
-  const idx = stageIndex(view);
+
+  const stage =
+    STAGES.find(
+      (item) => item.id === view
+    );
+
+
+  const idx =
+    stageIndex(view);
+
 
   const progress =
     idx > -1
       ? ((idx + 1) / STAGES.length) * 100
       : 0;
 
+
+  const headerId =
+    analysis?.spill?.timestamp
+      ? "LIVE INVESTIGATION"
+      : CASE.id;
+
+
+  const headerTime =
+    analysis?.spill?.timestamp ||
+    CASE.acquired;
+
+
   return (
     <div className="shell">
 
-      <Rail active={view} go={go} />
+      <Rail
+        active={view}
+        go={go}
+      />
+
 
       <main className="stage">
 
         {/* Progress bar */}
+
         <div
           style={{
             height: 2,
@@ -110,17 +205,21 @@ export default function App() {
           />
         </div>
 
+
         {/* Header */}
+
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             gap: 16,
-            padding: "22px clamp(20px, 4vw, 44px) 0",
+            padding:
+              "22px clamp(20px, 4vw, 44px) 0",
             flexWrap: "wrap",
           }}
         >
+
           <div
             className="mono"
             style={{
@@ -129,13 +228,15 @@ export default function App() {
               letterSpacing: "0.09em",
             }}
           >
-            {CASE.id}
+            {headerId}
+
             {stage
-              ? ` · STAGE ${stage.num} OF 15`
+              ? ` · STAGE ${stage.num} OF 14`
               : view === "alerts"
-              ? " · ALERTS"
-              : " · OVERVIEW"}
+                ? " · ALERTS"
+                : " · OVERVIEW"}
           </div>
+
 
           <div
             className="mono"
@@ -144,11 +245,14 @@ export default function App() {
               color: "#3F6B80",
             }}
           >
-            {CASE.acquired}
+            {headerTime}
           </div>
+
         </div>
 
+
         {/* Main content */}
+
         <div className="pad">
 
           <AnimatePresence mode="wait">
@@ -169,13 +273,29 @@ export default function App() {
               }}
               transition={{
                 duration: 0.35,
-                ease: [0.16, 0.8, 0.24, 1],
+                ease: [
+                  0.16,
+                  0.8,
+                  0.24,
+                  1,
+                ],
               }}
             >
 
               <Screen
                 go={go}
-                onRestart={() => go("landing")}
+                analysis={analysis}
+                setAnalysis={setAnalysis}
+                uploadedFile={uploadedFile}
+                setUploadedFile={
+                  setUploadedFile
+                }
+                uploadedImage={
+                  uploadedImage
+                }
+                onRestart={
+                  startNewInvestigation
+                }
               />
 
             </motion.div>

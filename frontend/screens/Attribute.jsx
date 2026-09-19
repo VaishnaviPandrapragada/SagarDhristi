@@ -1,424 +1,1548 @@
 import React, { useState } from "react";
-import { Ship, Factory, HelpCircle } from "lucide-react";
-import { Bracket, Reading, Pill, Bar, StageHead, StageNav, Caveat, SimTag, SarTexture } from "../components/ui.jsx";
-import { COLORS, SOURCE_TYPES, FILTER_FUNNEL, VESSELS, EVIDENCE_FACTORS } from "../data/mock.js";
 
-const ICONS = { vessel: Ship, fixed: Factory, unknown: HelpCircle };
+import {
+  Ship,
+  Factory,
+  HelpCircle,
+} from "lucide-react";
+
+import {
+  Bracket,
+  Reading,
+  Pill,
+  Bar,
+  StageHead,
+  StageNav,
+  Caveat,
+  SimTag,
+  SarTexture,
+} from "../components/ui.jsx";
+
+import {
+  COLORS,
+  SOURCE_TYPES,
+  FILTER_FUNNEL,
+  VESSELS,
+  EVIDENCE_FACTORS,
+} from "../data/mock.js";
+
 
 /* ==========================================================================
-   STAGE 08 — SOURCE TYPE CHECK
+   REAL BACKEND DATA HELPERS
    ========================================================================== */
-export function SourceTypeStage({ go }) {
+
+function getCandidates(analysis) {
+  if (
+    Array.isArray(analysis?.ranked_candidates)
+  ) {
+    return analysis.ranked_candidates;
+  }
+
+  if (
+    Array.isArray(analysis?.ais_candidates)
+  ) {
+    return analysis.ais_candidates;
+  }
+
+  return [];
+}
+
+
+function getVesselId(candidate) {
+  return (
+    candidate?.vessel_id ??
+    candidate?.mmsi ??
+    "—"
+  );
+}
+
+
+function getDistance(candidate) {
+  return (
+    candidate?.distance_to_source_km ??
+    candidate?.distance_to_spill_km ??
+    null
+  );
+}
+
+
+function getTimeDifference(candidate) {
+  return (
+    candidate?.time_difference_hours ??
+    candidate?.time_diff_hours ??
+    null
+  );
+}
+
+
+function getSpatial(candidate) {
+  return (
+    candidate?.evidence?.spatial_score ??
+    candidate?.spatial_score ??
+    null
+  );
+}
+
+
+function getTemporal(candidate) {
+  return (
+    candidate?.evidence?.temporal_score ??
+    candidate?.temporal_score ??
+    null
+  );
+}
+
+
+function getProximity(candidate) {
+  return (
+    candidate?.evidence?.proximity_score ??
+    candidate?.proximity_score ??
+    null
+  );
+}
+
+
+function getTrajectory(candidate) {
+  return (
+    candidate?.evidence?.trajectory_score ??
+    candidate?.trajectory_score ??
+    null
+  );
+}
+
+
+function getBehaviour(candidate) {
+  return (
+    candidate?.behaviour_score ??
+    candidate?.behavior_score ??
+    null
+  );
+}
+
+
+function getScore(candidate) {
+  return (
+    candidate?.evidence_score ??
+    candidate?.attribution_score ??
+    candidate?.score ??
+    null
+  );
+}
+
+
+function getRank(candidate, index) {
+  return (
+    candidate?.evidence_rank ??
+    candidate?.rank ??
+    index + 1
+  );
+}
+
+
+function formatScore(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    Number.isNaN(Number(value))
+  ) {
+    return "—";
+  }
+
+  return Number(value).toFixed(2);
+}
+
+
+function formatDistance(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    Number.isNaN(Number(value))
+  ) {
+    return "—";
+  }
+
+  return `${Number(value).toFixed(2)} km`;
+}
+
+
+function formatTime(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    Number.isNaN(Number(value))
+  ) {
+    return "—";
+  }
+
+  const minutes = Math.round(
+    Number(value) * 60
+  );
+
+  return `${
+    minutes >= 0 ? "+" : ""
+  }${minutes} min`;
+}
+
+
+/* ==========================================================================
+   STAGE 08 — SOURCE TYPE
+   ========================================================================== */
+
+const ICONS = {
+  vessel: Ship,
+  fixed: Factory,
+  unknown: HelpCircle,
+};
+
+
+export function SourceTypeStage({
+  go,
+}) {
   const top = SOURCE_TYPES[0];
+
   return (
     <div>
+
       <StageHead
         step="08"
         question="What kind of source"
         title="Vessel attribution only runs if a vessel is plausible"
-        lede="Slick shape, position and surrounding context are weighed against three possibilities. If the evidence pointed to a fixed installation or a natural seep, the pipeline would stop here rather than build a case against passing ships."
+        lede="Slick shape, position and surrounding context are weighed against three possibilities."
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 26 }}>
-        {SOURCE_TYPES.map((s) => {
-          const Icon = ICONS[s.key];
-          const lead = s.key === top.key;
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(230px, 1fr))",
+          gap: 26,
+        }}
+      >
+
+        {SOURCE_TYPES.map((source) => {
+
+          const Icon =
+            ICONS[source.key];
+
+          const lead =
+            source.key === top.key;
+
           return (
-            <Bracket key={s.key} live={lead}>
-              <div style={{ padding: 24, background: lead ? "rgba(53,201,245,0.04)" : "transparent" }}>
-                <Icon size={20} color={lead ? COLORS.cyan : "#3F6B80"} strokeWidth={1.5} />
-                <div style={{ fontSize: 19, marginTop: 18 }}>{s.name}</div>
-                <div className="note" style={{ marginBottom: 22 }}>{s.desc}</div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-                  <span className="label">Likelihood</span>
-                  <span className="mono" style={{ fontSize: 19, color: lead ? COLORS.cyan : "#7FAEC7" }}>{s.score.toFixed(2)}</span>
+            <Bracket
+              key={source.key}
+              live={lead}
+            >
+
+              <div
+                style={{
+                  padding: 24,
+                  background: lead
+                    ? "rgba(53,201,245,0.04)"
+                    : "transparent",
+                }}
+              >
+
+                <Icon
+                  size={20}
+                  color={
+                    lead
+                      ? COLORS.cyan
+                      : "#3F6B80"
+                  }
+                  strokeWidth={1.5}
+                />
+
+                <div
+                  style={{
+                    fontSize: 19,
+                    marginTop: 18,
+                  }}
+                >
+                  {source.name}
                 </div>
-                <Bar value={s.score} color={lead ? COLORS.cyan : "#2C5A70"} />
-                <p className="note" style={{ marginTop: 16 }}>{s.evidence}</p>
+
+                <div
+                  className="note"
+                  style={{
+                    marginBottom: 22,
+                  }}
+                >
+                  {source.desc}
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "baseline",
+                    marginBottom: 8,
+                  }}
+                >
+
+                  <span className="label">
+                    Likelihood
+                  </span>
+
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 19,
+                      color: lead
+                        ? COLORS.cyan
+                        : "#7FAEC7",
+                    }}
+                  >
+                    {source.score.toFixed(2)}
+                  </span>
+
+                </div>
+
+                <Bar
+                  value={source.score}
+                  color={
+                    lead
+                      ? COLORS.cyan
+                      : "#2C5A70"
+                  }
+                />
+
+                <p
+                  className="note"
+                  style={{
+                    marginTop: 16,
+                  }}
+                >
+                  {source.evidence}
+                </p>
+
               </div>
+
             </Bracket>
           );
         })}
+
       </div>
 
-      <div style={{ marginTop: 34, maxWidth: 640 }}>
+      <div
+        style={{
+          marginTop: 34,
+          maxWidth: 640,
+        }}
+      >
+
         <Caveat>
-          Vessel source is the leading hypothesis at {top.score.toFixed(2)}. That opens the AIS search — it does not
+          Vessel source is the leading hypothesis.
+          That opens the AIS search — it does not
           implicate any particular ship.
         </Caveat>
-      </div>
-      <div style={{ marginTop: 20 }}><SimTag /></div>
 
-      <StageNav onBack={() => go("drift")} onNext={() => go("spacetime")} nextLabel="Filter AIS traffic" />
+      </div>
+
+      <div
+        style={{
+          marginTop: 20,
+        }}
+      >
+        <SimTag />
+      </div>
+
+      <StageNav
+        onBack={() => go("drift")}
+        onNext={() => go("spacetime")}
+        nextLabel="Filter AIS traffic"
+      />
+
     </div>
   );
 }
+
 
 /* ==========================================================================
    STAGE 09 — SPACE-TIME FILTER
    ========================================================================== */
-export function SpaceTimeStage({ go }) {
-  const [step, setStep] = useState(FILTER_FUNNEL.length - 1);
-  const visible = VESSELS.filter((v, i) => (step >= 4 ? i < 3 : step >= 3 ? i < 5 : step >= 2 ? i < 7 : true));
+
+export function SpaceTimeStage({
+  go,
+}) {
+  const [step, setStep] =
+    useState(
+      FILTER_FUNNEL.length - 1
+    );
+
+  const visible =
+    VESSELS.filter(
+      (v, index) =>
+        step >= 4
+          ? index < 3
+          : step >= 3
+            ? index < 5
+            : step >= 2
+              ? index < 7
+              : true
+    );
 
   return (
     <div className="split">
+
       <div>
+
         <StageHead
           step="09"
           question="Finding candidates"
           title="Who was inside the source zone, during the source window"
-          lede="AIS position reports are filtered on two axes at once: space, against the hindcast zone, and time, against the estimated release window. Everything outside either bound drops out."
+          lede="AIS position reports are filtered on two axes at once: space against the hindcast zone and time against the estimated release window."
         />
 
         <Bracket>
-          <div style={{ position: "relative", aspectRatio: "16 / 10", background: "#051722" }}>
-            <svg width="100%" height="100%" viewBox="0 0 100 62.5" preserveAspectRatio="xMidYMid slice">
-              <defs><SarTexture id="ais" frequency={0.26} seed={11} tint="#0A2A3A" /></defs>
-              <rect width="100" height="62.5" fill="#07202D" />
-              <rect width="100" height="62.5" filter="url(#ais)" opacity="0.5" />
-              {Array.from({ length: 6 }).map((_, i) => (
-                <line key={`h${i}`} x1="0" y1={i * 12.5} x2="100" y2={i * 12.5} stroke="#0F2938" strokeWidth="0.15" />
-              ))}
-              {Array.from({ length: 7 }).map((_, i) => (
-                <line key={`v${i}`} x1={i * 16.6} y1="0" x2={i * 16.6} y2="62.5" stroke="#0F2938" strokeWidth="0.15" />
+
+          <div
+            style={{
+              position: "relative",
+              aspectRatio: "16 / 10",
+              background: "#051722",
+            }}
+          >
+
+            <svg
+              width="100%"
+              height="100%"
+              viewBox="0 0 100 62.5"
+              preserveAspectRatio="xMidYMid slice"
+            >
+
+              <defs>
+
+                <SarTexture
+                  id="ais"
+                  frequency={0.26}
+                  seed={11}
+                  tint="#0A2A3A"
+                />
+
+              </defs>
+
+              <rect
+                width="100"
+                height="62.5"
+                fill="#07202D"
+              />
+
+              <rect
+                width="100"
+                height="62.5"
+                filter="url(#ais)"
+                opacity="0.5"
+              />
+
+              {Array.from({
+                length: 6,
+              }).map((_, index) => (
+                <line
+                  key={`h${index}`}
+                  x1="0"
+                  y1={index * 12.5}
+                  x2="100"
+                  y2={index * 12.5}
+                  stroke="#0F2938"
+                  strokeWidth="0.15"
+                />
               ))}
 
-              <ellipse cx="58" cy="44" rx="13" ry="10" fill={COLORS.oil} opacity="0.1" stroke={COLORS.oil} strokeWidth="0.3" strokeDasharray="1.2 1" />
-              <circle cx="58" cy="44" r="1.1" fill={COLORS.oil} />
-              <text x="60.5" y="42" className="mono" fontSize="2.3" fill={COLORS.oil}>SOURCE ZONE</text>
+              {Array.from({
+                length: 7,
+              }).map((_, index) => (
+                <line
+                  key={`v${index}`}
+                  x1={index * 16.6}
+                  y1="0"
+                  x2={index * 16.6}
+                  y2="62.5"
+                  stroke="#0F2938"
+                  strokeWidth="0.15"
+                />
+              ))}
+
+              <ellipse
+                cx="58"
+                cy="44"
+                rx="13"
+                ry="10"
+                fill={COLORS.oil}
+                opacity="0.1"
+                stroke={COLORS.oil}
+                strokeWidth="0.3"
+                strokeDasharray="1.2 1"
+              />
+
+              <circle
+                cx="58"
+                cy="44"
+                r="1.1"
+                fill={COLORS.oil}
+              />
+
+              <text
+                x="60.5"
+                y="42"
+                className="mono"
+                fontSize="2.3"
+                fill={COLORS.oil}
+              >
+                SOURCE ZONE
+              </text>
 
               {visible.map((v) => {
-                const isCand = v.tier === "candidate";
-                const isTop = v.rank === 1;
-                const col = isTop ? COLORS.critical : isCand ? COLORS.warning : COLORS.cyan;
-                const pts = v.track.map((p) => `${p[0]},${p[1] * 0.625}`).join(" ");
-                const [cx, cy] = v.track[4];
+
+                const isCandidate =
+                  v.tier === "candidate";
+
+                const isTop =
+                  v.rank === 1;
+
+                const color =
+                  isTop
+                    ? COLORS.critical
+                    : isCandidate
+                      ? COLORS.warning
+                      : COLORS.cyan;
+
+                const points =
+                  v.track
+                    .map(
+                      (p) =>
+                        `${p[0]},${p[1] * 0.625}`
+                    )
+                    .join(" ");
+
+                const [cx, cy] =
+                  v.track[4];
+
                 return (
                   <g key={v.mmsi}>
-                    <polyline points={pts} fill="none" stroke={col} strokeWidth="0.25" opacity="0.45" strokeDasharray="1 0.8" />
-                    <circle cx={cx} cy={cy * 0.625} r={isTop ? 1.5 : 1.1} fill={col} />
-                    {isCand && <text x={cx + 2} y={cy * 0.625 + 1} className="mono" fontSize="2" fill={col}>{v.mmsi}</text>}
+
+                    <polyline
+                      points={points}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth="0.25"
+                      opacity="0.45"
+                      strokeDasharray="1 0.8"
+                    />
+
+                    <circle
+                      cx={cx}
+                      cy={cy * 0.625}
+                      r={
+                        isTop
+                          ? 1.5
+                          : 1.1
+                      }
+                      fill={color}
+                    />
+
+                    {isCandidate && (
+                      <text
+                        x={cx + 2}
+                        y={
+                          cy * 0.625 + 1
+                        }
+                        className="mono"
+                        fontSize="2"
+                        fill={color}
+                      >
+                        {v.mmsi}
+                      </text>
+                    )}
+
                   </g>
                 );
               })}
+
             </svg>
 
-            <div style={{ position: "absolute", top: 12, right: 14, display: "flex", gap: 14, flexWrap: "wrap" }}>
-              {[["Other vessels", COLORS.cyan], ["Candidates", COLORS.warning], ["Top candidate", COLORS.critical]].map(([l, c]) => (
-                <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: c }} />
-                  <span className="label" style={{ fontSize: 9 }}>{l}</span>
-                </span>
-              ))}
-            </div>
           </div>
+
         </Bracket>
 
-        <StageNav onBack={() => go("sourcetype")} onNext={() => go("trajectory")} nextLabel="Analyse trajectories" />
+        <StageNav
+          onBack={() =>
+            go("sourcetype")
+          }
+          onNext={() =>
+            go("trajectory")
+          }
+          nextLabel="Analyse trajectories"
+        />
+
       </div>
 
-      <aside>
-        <div className="label" style={{ marginBottom: 20 }}>Filter funnel</div>
-        {FILTER_FUNNEL.map((f, i) => {
-          const on = i <= step;
-          return (
-            <button key={f.label} onClick={() => setStep(i)}
-              style={{
-                display: "block", width: "100%", textAlign: "left", background: "none", cursor: "pointer",
-                border: "none", borderLeft: `2px solid ${on ? COLORS.cyan : "#153545"}`,
-                padding: "0 0 0 16px", marginBottom: 20, transition: "border-color .25s",
-              }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-                <span style={{ fontSize: 13.5, color: on ? COLORS.white : "#4E7C93" }}>{f.label}</span>
-                <span className="mono" style={{ fontSize: 17, color: on ? COLORS.cyan : "#3F6B80" }}>{f.count}</span>
-              </div>
-              <div className="note" style={{ marginTop: 5 }}>{f.note}</div>
-            </button>
-          );
-        })}
 
-        <div className="hairline" style={{ margin: "8px 0 22px" }} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-          <Reading label="Search radius" value="12" unit="NM" size={17} />
-          <Reading label="Time window" value="±3" unit="hrs" size={17} />
+      <aside>
+
+        <div
+          className="label"
+          style={{
+            marginBottom: 20,
+          }}
+        >
+          Filter funnel
         </div>
-        <div style={{ marginTop: 22 }}><SimTag /></div>
+
+        {FILTER_FUNNEL.map(
+          (funnel, index) => {
+
+            const active =
+              index <= step;
+
+            return (
+              <button
+                key={funnel.label}
+                onClick={() =>
+                  setStep(index)
+                }
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  background: "none",
+                  cursor: "pointer",
+                  border: "none",
+                  borderLeft:
+                    `2px solid ${
+                      active
+                        ? COLORS.cyan
+                        : "#153545"
+                    }`,
+                  padding:
+                    "0 0 0 16px",
+                  marginBottom: 20,
+                }}
+              >
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "baseline",
+                    gap: 12,
+                  }}
+                >
+
+                  <span
+                    style={{
+                      fontSize: 13.5,
+                      color: active
+                        ? COLORS.white
+                        : "#4E7C93",
+                    }}
+                  >
+                    {funnel.label}
+                  </span>
+
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 17,
+                      color: active
+                        ? COLORS.cyan
+                        : "#3F6B80",
+                    }}
+                  >
+                    {funnel.count}
+                  </span>
+
+                </div>
+
+                <div
+                  className="note"
+                  style={{
+                    marginTop: 5,
+                  }}
+                >
+                  {funnel.note}
+                </div>
+
+              </button>
+            );
+          }
+        )}
+
+        <div
+          className="hairline"
+          style={{
+            margin:
+              "8px 0 22px",
+          }}
+        />
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "1fr 1fr",
+            gap: 18,
+          }}
+        >
+
+          <Reading
+            label="Search radius"
+            value="12"
+            unit="NM"
+            size={17}
+          />
+
+          <Reading
+            label="Time window"
+            value="±3"
+            unit="hrs"
+            size={17}
+          />
+
+        </div>
+
+        <div
+          style={{
+            marginTop: 22,
+          }}
+        >
+          <SimTag />
+        </div>
+
       </aside>
+
     </div>
   );
 }
 
+
 /* ==========================================================================
-   STAGE 10 — VESSEL TRAJECTORY ANALYSIS (RNN)
+   STAGE 10 — REAL AIS TRAJECTORY EVIDENCE
    ========================================================================== */
-export function TrajectoryStage({ go }) {
-  const candidates = VESSELS.filter((v) => v.tier === "candidate");
-  const [sel, setSel] = useState(candidates[0].mmsi);
-  const v = candidates.find((c) => c.mmsi === sel);
+
+export function TrajectoryStage({
+  go,
+  analysis,
+}) {
+  const candidates =
+    getCandidates(analysis);
+
+  const top =
+    candidates[0] || null;
 
   return (
     <div className="split">
+
       <div>
+
         <StageHead
           step="10"
           question="How each vessel moved"
-          title="A sequence model, not a nearest-ship shortcut"
-          lede="For every candidate, twelve timesteps of seven AIS features — position, speed, course, rate of turn and their deltas — are fed to a recurrent model. It predicts the vessel's likely movement and checks whether that movement is consistent with the slick's geometry and timing."
+          title="Recorded AIS movement"
+          lede="Historical AIS movement is used as supporting evidence for candidate ranking."
         />
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 22, flexWrap: "wrap" }}>
-          {candidates.map((c) => (
-            <button key={c.mmsi} onClick={() => setSel(c.mmsi)} className="chip"
-              style={{
-                cursor: "pointer",
-                borderColor: sel === c.mmsi ? "#2C7A9E" : "#163B4E",
-                color: sel === c.mmsi ? COLORS.cyan : "#9AC4DA",
-                background: sel === c.mmsi ? "rgba(53,201,245,0.06)" : "#061826",
-              }}>
-              {c.name}
-            </button>
-          ))}
-        </div>
-
         <Bracket>
-          <div style={{ padding: "26px 24px", background: "#051722" }}>
-            <svg viewBox="0 0 520 190" width="100%">
-              {/* observed AIS track */}
-              <text x="6" y="16" className="mono" fontSize="9" fill="#4E7C93">OBSERVED AIS TRACK (12 STEPS)</text>
-              <polyline
-                points={v.track.map((p, i) => `${20 + i * 34},${150 - p[1] * 0.9}`).join(" ")}
-                fill="none" stroke={COLORS.cyan} strokeWidth="1.4"
-              />
-              {v.track.map((p, i) => (
-                <circle key={i} cx={20 + i * 34} cy={150 - p[1] * 0.9} r="2.6" fill={COLORS.cyan} />
-              ))}
 
-              {/* RNN block */}
-              <rect x="270" y="52" width="92" height="76" fill="rgba(53,201,245,0.06)" stroke="#2C7A9E" />
-              <text x="298" y="78" className="mono" fontSize="11" fill={COLORS.cyan}>RNN</text>
-              <text x="282" y="94" className="mono" fontSize="7.5" fill="#7FAEC7">12 × 7 features</text>
-              {[0, 1, 2].map((r) =>
-                [0, 1, 2].map((c) => (
-                  <circle key={`${r}${c}`} cx={286 + c * 26} cy={106 + r * 7} r="1.6" fill="#2C7A9E" opacity="0.7" />
-                ))
-              )}
+          <div
+            style={{
+              padding: "30px 26px",
+            }}
+          >
 
-              {/* predicted continuation */}
-              <text x="378" y="16" className="mono" fontSize="9" fill="#4E7C93">PREDICTED MOVEMENT</text>
-              <polyline
-                points={v.track.slice(3).map((p, i) => `${378 + i * 32},${150 - p[1] * 0.9 - 8}`).join(" ")}
-                fill="none" stroke={COLORS.warning} strokeWidth="1.4" strokeDasharray="5 4" className="flow-dash"
-              />
-              <line x1="230" y1="90" x2="266" y2="90" stroke="#1B4A60" strokeWidth="1" />
-              <line x1="366" y1="90" x2="374" y2="90" stroke="#1B4A60" strokeWidth="1" />
-              <line x1="6" y1="168" x2="514" y2="168" stroke="#0F2938" strokeWidth="1" />
-              <text x="6" y="182" className="mono" fontSize="8" fill="#3F6B80">−6 h</text>
-              <text x="478" y="182" className="mono" fontSize="8" fill="#3F6B80">+2 h</text>
-            </svg>
+            {!top ? (
+
+              <div
+                style={{
+                  padding: 30,
+                  textAlign: "center",
+                  color: "#4E7C93",
+                }}
+              >
+                No AIS trajectory evidence
+                returned for this investigation.
+              </div>
+
+            ) : (
+
+              <>
+
+                <div
+                  className="label"
+                  style={{
+                    marginBottom: 18,
+                  }}
+                >
+                  TOP AIS CANDIDATE
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 25,
+                    marginBottom: 6,
+                  }}
+                >
+                  Vessel ID{" "}
+                  {getVesselId(top)}
+                </div>
+
+                <div
+                  className="mono"
+                  style={{
+                    fontSize: 12,
+                    color: "#5C879C",
+                    marginBottom: 28,
+                  }}
+                >
+                  Recorded AIS position
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns:
+                      "repeat(auto-fit, minmax(150px, 1fr))",
+                    gap: 26,
+                  }}
+                >
+
+                  <Reading
+                    label="Distance"
+                    value={formatDistance(
+                      getDistance(top)
+                    )}
+                    size={17}
+                  />
+
+                  <Reading
+                    label="Time offset"
+                    value={formatTime(
+                      getTimeDifference(top)
+                    )}
+                    size={17}
+                  />
+
+                  <Reading
+                    label="Trajectory"
+                    value={formatScore(
+                      getTrajectory(top)
+                    )}
+                    size={17}
+                    color={COLORS.cyan}
+                  />
+
+                  <Reading
+                    label="Evidence"
+                    value={formatScore(
+                      getScore(top)
+                    )}
+                    size={17}
+                    color={COLORS.cyan}
+                  />
+
+                </div>
+
+              </>
+
+            )}
+
           </div>
+
         </Bracket>
 
-        <p className="note" style={{ marginTop: 22, maxWidth: 620 }}>{v.rnn.note}</p>
+        <div
+          style={{
+            marginTop: 22,
+          }}
+        >
 
-        <StageNav onBack={() => go("spacetime")} onNext={() => go("fusion")} nextLabel="Fuse the evidence" />
+          <Caveat>
+            Only evidence returned by the AIS
+            investigation is displayed. No synthetic
+            trajectory is drawn.
+          </Caveat>
+
+        </div>
+
+        <StageNav
+          onBack={() =>
+            go("spacetime")
+          }
+          onNext={() =>
+            go("fusion")
+          }
+          nextLabel="Fuse the evidence"
+        />
+
       </div>
 
+
       <aside>
-        <div style={{ fontSize: 20, marginBottom: 4 }}>{v.name}</div>
-        <div className="mono" style={{ fontSize: 12.5, color: "#5C879C", marginBottom: 24 }}>{v.type} · {v.length} m</div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          <Reading label="MMSI" value={v.mmsi} size={13} />
-          <Reading label="IMO" value={v.imo} size={13} />
-          <Reading label="Distance" value={v.distance} unit="NM" size={18} />
-          <Reading label="Time offset" value={`${v.timeOffset > 0 ? "+" : ""}${v.timeOffset}`} unit="min" size={18}
-            color={v.timeOffset < 0 ? COLORS.warning : COLORS.baby} />
-          <Reading label="Speed" value={v.speed} unit="kn" size={18} />
-          <Reading label="Heading" value={v.heading} unit="°" size={18} />
+        <div
+          className="label"
+          style={{
+            marginBottom: 20,
+          }}
+        >
+          AIS candidates
         </div>
 
-        <div className="hairline" style={{ margin: "26px 0" }} />
+        <Reading
+          label="Candidates returned"
+          value={candidates.length}
+          size={34}
+          color={COLORS.cyan}
+        />
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-          <span className="label">Trajectory match</span>
-          <span className="mono" style={{ fontSize: 15, color: COLORS.cyan }}>{v.rnn.match.toFixed(2)}</span>
-        </div>
-        <Bar value={v.rnn.match} color={COLORS.cyan} />
+        {top && (
+          <>
+            <div
+              className="hairline"
+              style={{
+                margin:
+                  "26px 0",
+              }}
+            />
 
-        <div style={{ marginTop: 24 }}>
-          <div className="label" style={{ marginBottom: 9 }}>Behaviour note</div>
-          <p className="note" style={{ margin: 0 }}>{v.anomaly}</p>
-        </div>
+            <Reading
+              label="Evidence rank"
+              value={getRank(
+                top,
+                0
+              )}
+              size={28}
+              color={COLORS.cyan}
+            />
+          </>
+        )}
 
-        <div style={{ marginTop: 22 }}>
-          <Reading label="AIS gap in window" value={v.aisGap} size={16} color={v.aisGap === "0 min" ? COLORS.white : COLORS.warning} />
-        </div>
-        <div style={{ marginTop: 22 }}><SimTag /></div>
       </aside>
+
     </div>
   );
 }
+
 
 /* ==========================================================================
    STAGE 11 — EVIDENCE FUSION
    ========================================================================== */
-export function FusionStage({ go }) {
-  const candidates = VESSELS.filter((v) => v.tier === "candidate");
-  const [sel, setSel] = useState(candidates[0].mmsi);
-  const v = candidates.find((c) => c.mmsi === sel);
+
+export function FusionStage({
+  go,
+}) {
+  const candidates =
+    VESSELS.filter(
+      (v) =>
+        v.tier === "candidate"
+    );
+
+  const [selected, setSelected] =
+    useState(
+      candidates[0]?.mmsi
+    );
+
+  const vessel =
+    candidates.find(
+      (v) =>
+        v.mmsi === selected
+    ) ||
+    candidates[0];
 
   return (
     <div>
+
       <StageHead
         step="11"
         question="Putting the pieces together"
-        title="Five independent signals, one weighted score"
-        lede="No single factor decides anything. Each answers a different question about a candidate, carries its own weight, and contributes to a combined evidence score that stays inspectable."
+        title="Evidence fusion"
+        lede="Spatial, temporal, proximity, trajectory and behavioural signals are combined into an investigation score."
       />
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 32, flexWrap: "wrap" }}>
-        {candidates.map((c) => (
-          <button key={c.mmsi} onClick={() => setSel(c.mmsi)} className="chip"
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          marginBottom: 32,
+          flexWrap: "wrap",
+        }}
+      >
+
+        {candidates.map(
+          (candidate) => (
+
+            <button
+              key={candidate.mmsi}
+              onClick={() =>
+                setSelected(
+                  candidate.mmsi
+                )
+              }
+              className="chip"
+              style={{
+                cursor: "pointer",
+                borderColor:
+                  selected ===
+                  candidate.mmsi
+                    ? "#2C7A9E"
+                    : "#163B4E",
+                color:
+                  selected ===
+                  candidate.mmsi
+                    ? COLORS.cyan
+                    : "#9AC4DA",
+                background:
+                  selected ===
+                  candidate.mmsi
+                    ? "rgba(53,201,245,0.06)"
+                    : "#061826",
+              }}
+            >
+              {candidate.name} ·{" "}
+              {candidate.score.toFixed(2)}
+            </button>
+
+          )
+        )}
+
+      </div>
+
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: 44,
+          alignItems: "start",
+        }}
+      >
+
+        <div>
+
+          {EVIDENCE_FACTORS.map(
+            (factor, index) => (
+
+              <div
+                key={factor.key}
+                style={{
+                  marginBottom: 26,
+                }}
+              >
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent:
+                      "space-between",
+                    alignItems:
+                      "baseline",
+                    gap: 12,
+                    marginBottom: 7,
+                  }}
+                >
+
+                  <span
+                    style={{
+                      fontSize: 14,
+                    }}
+                  >
+                    {factor.label}
+                  </span>
+
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 15,
+                      color: COLORS.cyan,
+                    }}
+                  >
+                    {vessel?.[factor.key] != null
+                      ? vessel[
+                          factor.key
+                        ].toFixed(2)
+                      : "—"}
+                  </span>
+
+                </div>
+
+                <Bar
+                  value={
+                    vessel?.[factor.key] ??
+                    0
+                  }
+                  color={COLORS.cyan}
+                  delay={
+                    index * 0.07
+                  }
+                />
+
+                <div
+                  className="note"
+                  style={{
+                    marginTop: 7,
+                  }}
+                >
+                  {factor.question}
+                </div>
+
+              </div>
+            )
+          )}
+
+        </div>
+
+
+        <Bracket live>
+
+          <div
             style={{
-              cursor: "pointer",
-              borderColor: sel === c.mmsi ? "#2C7A9E" : "#163B4E",
-              color: sel === c.mmsi ? COLORS.cyan : "#9AC4DA",
-              background: sel === c.mmsi ? "rgba(53,201,245,0.06)" : "#061826",
-            }}>
-            {c.name} · {c.score.toFixed(2)}
-          </button>
-        ))}
-      </div>
+              padding:
+                "30px 26px",
+            }}
+          >
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 44, alignItems: "start" }}>
-        <div>
-          {EVIDENCE_FACTORS.map((f, i) => (
-            <div key={f.key} style={{ marginBottom: 26 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 7 }}>
-                <span style={{ fontSize: 14 }}>{f.label}</span>
-                <span style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-                  <span className="mono" style={{ fontSize: 10, color: "#3F6B80" }}>w {f.weight.toFixed(2)}</span>
-                  <span className="mono" style={{ fontSize: 15, color: COLORS.cyan }}>{v[f.key].toFixed(2)}</span>
-                </span>
-              </div>
-              <Bar value={v[f.key]} color={COLORS.cyan} delay={i * 0.07} />
-              <div className="note" style={{ marginTop: 7, color: "#4E7C93" }}>{f.question}</div>
+            <div
+              className="label"
+              style={{
+                marginBottom: 14,
+              }}
+            >
+              Combined evidence score
             </div>
-          ))}
-        </div>
 
-        <div>
-          <Bracket live>
-            <div style={{ padding: "30px 26px" }}>
-              <div className="label" style={{ marginBottom: 14 }}>Combined evidence score</div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                <span className="mono" style={{ fontSize: 56, lineHeight: 1, color: v.rank === 1 ? COLORS.critical : COLORS.baby }}>
-                  {v.score.toFixed(2)}
-                </span>
-                <span className="mono" style={{ fontSize: 14, color: "#4E7C93" }}>/ 1.00</span>
-              </div>
-              <div style={{ marginTop: 20 }}>
-                <Bar value={v.score} color={v.rank === 1 ? COLORS.critical : COLORS.baby} height={7} />
-              </div>
-              <div style={{ marginTop: 22, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Pill tone={v.rank === 1 ? "warning" : "neutral"}>{v.rank === 1 ? "Potential source" : "Candidate"}</Pill>
-                <Pill tone="neutral" dot={false}>Not confirmed attribution</Pill>
-              </div>
+            <div
+              className="mono"
+              style={{
+                fontSize: 56,
+                lineHeight: 1,
+                color: COLORS.cyan,
+              }}
+            >
+              {vessel?.score != null
+                ? vessel.score.toFixed(2)
+                : "—"}
             </div>
-          </Bracket>
 
-          <div style={{ marginTop: 26 }}>
-            <Caveat>
-              A high score means the vessel's recorded movement correlates strongly with the reconstructed source zone
-              and window. Correlation is a reason to investigate further — it is not evidence of discharge.
-            </Caveat>
+            <div
+              style={{
+                marginTop: 20,
+              }}
+            >
+              <Bar
+                value={
+                  vessel?.score ?? 0
+                }
+                color={COLORS.cyan}
+                height={7}
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop: 22,
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
+
+              <Pill tone="neutral">
+                Evidence score
+              </Pill>
+
+              <Pill
+                tone="neutral"
+                dot={false}
+              >
+                Not confirmed attribution
+              </Pill>
+
+            </div>
+
           </div>
-          <div style={{ marginTop: 22 }}><SimTag /></div>
-        </div>
+
+        </Bracket>
+
       </div>
 
-      <StageNav onBack={() => go("trajectory")} onNext={() => go("ranking")} nextLabel="Rank candidates" />
+
+      <div
+        style={{
+          marginTop: 26,
+        }}
+      >
+
+        <Caveat>
+          A high evidence score supports further
+          investigation. It is not proof of discharge
+          or responsibility.
+        </Caveat>
+
+      </div>
+
+
+      <StageNav
+        onBack={() =>
+          go("trajectory")
+        }
+        onNext={() =>
+          go("ranking")
+        }
+        nextLabel="Rank candidates"
+      />
+
     </div>
   );
 }
 
+
 /* ==========================================================================
-   STAGE 12 — VESSEL RANKING
+   STAGE 12 — REAL VESSEL RANKING
    ========================================================================== */
-export function RankingStage({ go }) {
-  const [onlyCandidates, setOnlyCandidates] = useState(false);
-  const rows = (onlyCandidates ? VESSELS.filter((v) => v.tier === "candidate") : VESSELS)
-    .slice()
-    .sort((a, b) => b.score - a.score);
+
+export function RankingStage({
+  go,
+  analysis,
+}) {
+  const candidates =
+    getCandidates(analysis);
+
+  /*
+   * IMPORTANT:
+   * Backend already returns evidence_rank.
+   * Rank 1 must appear first.
+   */
+  const rows =
+    [...candidates].sort(
+      (a, b) =>
+        Number(
+          a.evidence_rank ??
+          a.rank ??
+          999999
+        ) -
+        Number(
+          b.evidence_rank ??
+          b.rank ??
+          999999
+        )
+    );
 
   return (
     <div>
+
       <StageHead
         step="12"
-        question="Most likely source"
-        title="A shortlist, with every score shown"
-        lede="Candidates are ordered by combined evidence score. Lower-ranked vessels stay visible: showing the spread is what makes the top result interpretable rather than authoritative."
+        question="Candidate vessels"
+        title="Vessel ranking"
+        lede="AIS candidates are ordered using the evidence returned by the investigation pipeline."
       />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, marginBottom: 22, flexWrap: "wrap" }}>
-        <button className="btn btn-ghost" style={{ padding: "9px 18px", fontSize: 12.5 }} onClick={() => setOnlyCandidates((v) => !v)}>
-          {onlyCandidates ? "Show all screened vessels" : "Show candidates only"}
-        </button>
-        <SimTag>Fictional vessel identities</SimTag>
-      </div>
+      {!analysis ||
+      rows.length === 0 ? (
 
-      <div style={{ overflowX: "auto" }} className="scroll">
-        <table className="data" style={{ minWidth: 820 }}>
-          <thead>
-            <tr>
-              {["Rank", "Vessel", "Distance", "Time offset", "Trajectory", "Behaviour", "AIS gap", "Score"].map((h) => (
-                <th key={h} className="label">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((v) => {
-              const top = v.rank === 1;
-              const cand = v.tier === "candidate";
-              return (
-                <tr key={v.mmsi} style={{ background: top ? "rgba(255,91,91,0.05)" : "transparent" }}>
-                  <td className="mono" style={{ fontSize: 13, color: top ? COLORS.critical : "#5C879C" }}>
-                    {String(v.rank).padStart(2, "0")}
-                  </td>
-                  <td>
-                    <div style={{ fontSize: 14 }}>{v.name}</div>
-                    <div className="mono" style={{ fontSize: 11, color: "#4E7C93", marginTop: 3 }}>
-                      MMSI {v.mmsi} · {v.type}
-                    </div>
-                  </td>
-                  <td className="mono" style={{ fontSize: 13 }}>{v.distance} NM</td>
-                  <td className="mono" style={{ fontSize: 13, color: v.timeOffset < 0 ? COLORS.warning : "#7FAEC7" }}>
-                    {v.timeOffset > 0 ? "+" : ""}{v.timeOffset} min
-                  </td>
-                  <td style={{ width: 110 }}><Bar value={v.trajectory} color={COLORS.baby} height={4} /></td>
-                  <td style={{ width: 110 }}><Bar value={v.behaviour} color={COLORS.oil} height={4} /></td>
-                  <td className="mono" style={{ fontSize: 13, color: v.aisGap === "0 min" ? "#5C879C" : COLORS.warning }}>{v.aisGap}</td>
-                  <td>
-                    <span className="mono" style={{ fontSize: 17, color: top ? COLORS.critical : cand ? COLORS.warning : COLORS.baby }}>
-                      {v.score.toFixed(2)}
-                    </span>
-                  </td>
+        <Bracket>
+
+          <div
+            style={{
+              padding: 48,
+              textAlign: "center",
+              color: "#4E7C93",
+            }}
+          >
+            No AIS candidates returned
+            for this investigation.
+          </div>
+
+        </Bracket>
+
+      ) : (
+
+        <Bracket>
+
+          <div
+            style={{
+              overflowX: "auto",
+            }}
+          >
+
+            <table
+              className="data"
+              style={{
+                minWidth: 900,
+              }}
+            >
+
+              <thead>
+
+                <tr>
+
+                  {[
+                    "Rank",
+                    "Vessel ID",
+                    "Distance",
+                    "Time offset",
+                    "Spatial",
+                    "Temporal",
+                    "Proximity",
+                    "Trajectory",
+                    "Score",
+                  ].map(
+                    (heading) => (
+
+                      <th
+                        key={heading}
+                        className="label"
+                      >
+                        {heading}
+                      </th>
+
+                    )
+                  )}
+
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
 
-      <div style={{ marginTop: 34, maxWidth: 680 }}>
+              </thead>
+
+
+              <tbody>
+
+                {rows.map(
+                  (candidate, index) => {
+
+                    const rank =
+                      getRank(
+                        candidate,
+                        index
+                      );
+
+                    const score =
+                      getScore(
+                        candidate
+                      );
+
+                    const distance =
+                      getDistance(
+                        candidate
+                      );
+
+                    const time =
+                      getTimeDifference(
+                        candidate
+                      );
+
+                    const spatial =
+                      getSpatial(
+                        candidate
+                      );
+
+                    const temporal =
+                      getTemporal(
+                        candidate
+                      );
+
+                    const proximity =
+                      getProximity(
+                        candidate
+                      );
+
+                    const trajectory =
+                      getTrajectory(
+                        candidate
+                      );
+
+                    const isTop =
+                      Number(rank) === 1;
+
+                    return (
+                      <tr
+                        key={
+                          candidate.vessel_id ||
+                          `${rank}-${index}`
+                        }
+                        style={{
+                          background:
+                            isTop
+                              ? "rgba(255,91,91,0.05)"
+                              : "transparent",
+                        }}
+                      >
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 14,
+                            color:
+                              isTop
+                                ? COLORS.critical
+                                : "#5C879C",
+                          }}
+                        >
+                          {String(
+                            rank
+                          ).padStart(
+                            2,
+                            "0"
+                          )}
+                        </td>
+
+
+                        <td>
+
+                          <div
+                            className="mono"
+                            style={{
+                              fontSize: 14,
+                              color:
+                                isTop
+                                  ? COLORS.critical
+                                  : "#D5EBF5",
+                            }}
+                          >
+                            {getVesselId(
+                              candidate
+                            )}
+                          </div>
+
+                        </td>
+
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 13,
+                          }}
+                        >
+                          {formatDistance(
+                            distance
+                          )}
+                        </td>
+
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 13,
+                          }}
+                        >
+                          {formatTime(
+                            time
+                          )}
+                        </td>
+
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 13,
+                          }}
+                        >
+                          {formatScore(
+                            spatial
+                          )}
+                        </td>
+
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 13,
+                          }}
+                        >
+                          {formatScore(
+                            temporal
+                          )}
+                        </td>
+
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 13,
+                          }}
+                        >
+                          {formatScore(
+                            proximity
+                          )}
+                        </td>
+
+
+                        <td
+                          className="mono"
+                          style={{
+                            fontSize: 13,
+                          }}
+                        >
+                          {formatScore(
+                            trajectory
+                          )}
+                        </td>
+
+
+                        <td>
+
+                          <span
+                            className="mono"
+                            style={{
+                              fontSize: 17,
+                              color:
+                                isTop
+                                  ? COLORS.critical
+                                  : COLORS.cyan,
+                            }}
+                          >
+                            {formatScore(
+                              score
+                            )}
+                          </span>
+
+                        </td>
+
+                      </tr>
+                    );
+                  }
+                )}
+
+              </tbody>
+
+            </table>
+
+          </div>
+
+        </Bracket>
+
+      )}
+
+
+      <div
+        style={{
+          marginTop: 28,
+          maxWidth: 680,
+        }}
+      >
+
         <Caveat tone="warning">
-          Ranked highest does not mean responsible. These are attribution correlation scores intended to prioritise
-          which vessels an investigator should examine, with physical inspection and sampling still required.
+          The ranking is an evidence-based
+          investigation shortlist. A high score is
+          not proof that a vessel caused the spill.
         </Caveat>
+
       </div>
 
-      <StageNav onBack={() => go("fusion")} onNext={() => go("result")} nextLabel="View result" />
+
+      <StageNav
+        onBack={() =>
+          go("fusion")
+        }
+        onNext={() =>
+          go("result")
+        }
+        nextLabel="View result"
+      />
+
     </div>
   );
 }

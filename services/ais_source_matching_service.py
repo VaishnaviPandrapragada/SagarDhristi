@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
+import math
 import pandas as pd
 
 
@@ -13,13 +14,20 @@ class AISSourceMatchingService:
     def __init__(
         self,
         time_tolerance_hours: float = 1.0,
+        spatial_radius_km: float = 25.0,
     ):
         if time_tolerance_hours < 0:
             raise ValueError(
                 "time_tolerance_hours cannot be negative"
             )
 
+        if spatial_radius_km <= 0:
+            raise ValueError(
+                "spatial_radius_km must be greater than zero"
+            )
+
         self.time_tolerance_hours = time_tolerance_hours
+        self.spatial_radius_km = spatial_radius_km
 
     @staticmethod
     def _parse_timestamp(timestamp: str) -> datetime:
@@ -38,14 +46,7 @@ class AISSourceMatchingService:
         dataframe: pd.DataFrame,
         candidates: List[str],
     ) -> str:
-        """
-        Find a column using case-insensitive matching.
-        """
-
-        lookup = {
-            column.lower(): column
-            for column in dataframe.columns
-        }
+        lookup = {column.lower(): column for column in dataframe.columns}
 
         for candidate in candidates:
             if candidate.lower() in lookup:
@@ -62,38 +63,24 @@ class AISSourceMatchingService:
         latitude_2: float,
         longitude_2: float,
     ) -> float:
-        """
-        Haversine distance in kilometres.
-        """
-
-        import math
-
         earth_radius_km = 6371.0
 
         lat1 = math.radians(latitude_1)
+        lon1 = math.radians(longitude_1)
         lat2 = math.radians(latitude_2)
+        lon2 = math.radians(longitude_2)
 
-        delta_lat = math.radians(
-            latitude_2 - latitude_1
-        )
-
-        delta_lon = math.radians(
-            longitude_2 - longitude_1
-        )
+        delta_lat = lat2 - lat1
+        delta_lon = lon2 - lon1
 
         a = (
-            math.sin(delta_lat / 2.0) ** 2
+            math.sin(delta_lat / 2) ** 2
             + math.cos(lat1)
             * math.cos(lat2)
-            * math.sin(delta_lon / 2.0) ** 2
+            * math.sin(delta_lon / 2) ** 2
         )
 
-        c = 2.0 * math.atan2(
-            math.sqrt(a),
-            math.sqrt(1.0 - a),
-        )
-
-        return earth_radius_km * c
+        return 2 * earth_radius_km * math.asin(math.sqrt(a))
 
     def match_vessels(
         self,
@@ -101,38 +88,23 @@ class AISSourceMatchingService:
         source_zone: Dict[str, object],
         estimated_source_time: str,
     ) -> List[Dict[str, object]]:
-        """
-        Find AIS positions falling inside the probable source zone
-        and close to the estimated source time.
-        """
+
+        if dataframe.empty:
+            return []
 
         latitude_column = self._find_column(
             dataframe,
-            [
-                "latitude",
-                "lat",
-                "LAT",
-            ],
+            ["latitude", "lat", "LAT"],
         )
 
         longitude_column = self._find_column(
             dataframe,
-            [
-                "longitude",
-                "lon",
-                "lng",
-                "LON",
-            ],
+            ["longitude", "lon", "lng", "LON"],
         )
 
         vessel_column = self._find_column(
             dataframe,
-            [
-                "mmsi",
-                "MMSI",
-                "vessel_id",
-                "ship_id",
-            ],
+            ["mmsi", "MMSI", "vessel_id", "ship_id"],
         )
 
         time_column = self._find_column(
@@ -143,6 +115,7 @@ class AISSourceMatchingService:
                 "time",
                 "BaseDateTime",
                 "base_datetime",
+                "base_date_time",
             ],
         )
 
@@ -183,27 +156,25 @@ class AISSourceMatchingService:
             ]
         )
 
+        # ---------------------------------------------------------
+        # STEP 1: Temporal filtering
+        # ---------------------------------------------------------
+
         working = working[
             (working["_parsed_time"] >= start_time)
             & (working["_parsed_time"] <= end_time)
         ]
 
-        bounds = source_zone["bounds"]
-
-        min_latitude = float(bounds["min_latitude"])
-        max_latitude = float(bounds["max_latitude"])
-        min_longitude = float(bounds["min_longitude"])
-        max_longitude = float(bounds["max_longitude"])
-
-        working = working[
-            (working[latitude_column] >= min_latitude)
-            & (working[latitude_column] <= max_latitude)
-            & (working[longitude_column] >= min_longitude)
-            & (working[longitude_column] <= max_longitude)
-        ]
-
         if working.empty:
             return []
+
+        # ---------------------------------------------------------
+        # STEP 2: Spatial filtering
+        #
+        # Use distance from the source-zone CENTER rather than
+        # requiring AIS observations to fall inside the rectangular
+        # visualization bounds.
+        # ---------------------------------------------------------
 
         center = source_zone["center"]
 
@@ -215,156 +186,140 @@ class AISSourceMatchingService:
             center["longitude"]
         )
 
-        candidates = []
+        working["_distance_to_source_km"] = working.apply(
+            lambda row: self._distance_km(
+                float(row[latitude_column]),
+                float(row[longitude_column]),
+                center_latitude,
+                center_longitude,
+            ),
+            axis=1,
+        )
+
+        working = working[
+            working["_distance_to_source_km"]
+            <= self.spatial_radius_km
+        ]
+
+        if working.empty:
+            return []
+
+        # ---------------------------------------------------------
+        # STEP 3: Build candidate observations
+        # ---------------------------------------------------------
+
+        results = []
 
         for _, row in working.iterrows():
 
-            latitude = float(
-                row[latitude_column]
-            )
+            timestamp = row["_parsed_time"]
 
-            longitude = float(
-                row[longitude_column]
-            )
-
-            distance = self._distance_km(
-                latitude,
-                longitude,
-                center_latitude,
-                center_longitude,
-            )
-
-            time_difference = abs(
-                (
-                    row["_parsed_time"].to_pydatetime()
-                    - source_time
-                ).total_seconds()
+            time_difference_hours = abs(
+                (timestamp - source_time).total_seconds()
             ) / 3600.0
 
-            candidates.append(
+            results.append(
                 {
                     "vessel_id": str(
                         row[vessel_column]
                     ),
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "timestamp": row[
-                        "_parsed_time"
-                    ].isoformat(),
-                    "distance_to_source_km": distance,
-                    "time_difference_hours": time_difference,
+                    "latitude": float(
+                        row[latitude_column]
+                    ),
+                    "longitude": float(
+                        row[longitude_column]
+                    ),
+                    "timestamp": timestamp.isoformat(),
+                    "distance_to_source_km": float(
+                        row["_distance_to_source_km"]
+                    ),
+                    "time_difference_hours": float(
+                        time_difference_hours
+                    ),
                 }
             )
 
-        candidates.sort(
+        # ---------------------------------------------------------
+        # STEP 4: Rank by spatial + temporal relevance
+        # ---------------------------------------------------------
+
+        results.sort(
             key=lambda item: (
                 item["distance_to_source_km"],
                 item["time_difference_hours"],
             )
         )
 
-        # Keep one best observation per vessel.
-        best_by_vessel = {}
+        # ---------------------------------------------------------
+        # STEP 5: Keep the closest observation per vessel
+        # ---------------------------------------------------------
 
-        for candidate in candidates:
-            vessel_id = candidate["vessel_id"]
+        deduplicated = {}
 
-            if vessel_id not in best_by_vessel:
-                best_by_vessel[vessel_id] = candidate
+        for result in results:
 
-        results = list(
-            best_by_vessel.values()
+            vessel_id = result["vessel_id"]
+
+            if vessel_id not in deduplicated:
+                deduplicated[vessel_id] = result
+
+        final_results = list(
+            deduplicated.values()
         )
 
-        for rank, candidate in enumerate(
-            results,
+        # ---------------------------------------------------------
+        # STEP 6: Assign rank
+        # ---------------------------------------------------------
+
+        for rank, result in enumerate(
+            final_results,
             start=1,
         ):
-            candidate["rank"] = rank
+            result["rank"] = rank
 
-        return results
+        return final_results
 
 
 if __name__ == "__main__":
-    print("\n===== PHASE B AIS SOURCE MATCHING TEST =====")
 
-    # Deterministic test data.
-    #
-    # The structure intentionally resembles the AIS fields
-    # used by the Phase-A pipeline.
-    test_data = pd.DataFrame(
+    # Small local sanity test
+    dataframe = pd.DataFrame(
         [
             {
                 "MMSI": "SIM030012",
-                "LAT": -19.719000,
-                "LON": 115.387000,
-                "BaseDateTime": "2021-06-14T21:20:00Z",
+                "LAT": 13.45862,
+                "LON": 144.66887,
+                "BaseDateTime": "2022-03-04T00:30:00Z",
             },
             {
                 "MMSI": "SIM030013",
-                "LAT": -19.720000,
-                "LON": 115.388000,
-                "BaseDateTime": "2021-06-14T21:15:00Z",
-            },
-            {
-                "MMSI": "SIM030014",
-                "LAT": -19.800000,
-                "LON": 115.500000,
-                "BaseDateTime": "2021-06-14T21:20:00Z",
+                "LAT": 13.45833,
+                "LON": 144.66667,
+                "BaseDateTime": "2022-03-04T00:40:00Z",
             },
         ]
     )
 
     source_zone = {
         "center": {
-            "latitude": -19.719071,
-            "longitude": 115.387077,
+            "latitude": 13.476756645778078,
+            "longitude": 144.72374415911764,
         },
         "bounds": {
-            "min_latitude": -19.723571,
-            "max_latitude": -19.714571,
-            "min_longitude": 115.382577,
-            "max_longitude": 115.391577,
+            "min_latitude": 13.426756,
+            "max_latitude": 13.526756,
+            "min_longitude": 144.673757,
+            "max_longitude": 144.773730,
         },
     }
 
-    service = AISSourceMatchingService(
-        time_tolerance_hours=1.0
-    )
+    service = AISSourceMatchingService()
 
-    results = service.match_vessels(
-        dataframe=test_data,
+    candidates = service.match_vessels(
+        dataframe=dataframe,
         source_zone=source_zone,
-        estimated_source_time="2021-06-14T21:20:00Z",
+        estimated_source_time="2022-03-04T00:30:27Z",
     )
 
-    print("\nEstimated source time:")
-    print("  2021-06-14T21:20:00Z")
-
-    print("\nMatched vessels:")
-
-    for candidate in results:
-        print(
-            f"  Rank {candidate['rank']}: "
-            f"{candidate['vessel_id']}"
-        )
-        print(
-            f"    Position : "
-            f"{candidate['latitude']:.6f}, "
-            f"{candidate['longitude']:.6f}"
-        )
-        print(
-            f"    Distance : "
-            f"{candidate['distance_to_source_km']:.3f} km"
-        )
-        print(
-            f"    Time diff: "
-            f"{candidate['time_difference_hours']:.2f} hours"
-        )
-
-    print(
-        f"\nTotal matched vessels: "
-        f"{len(results)}"
-    )
-
-    print("\n===== AIS SOURCE MATCHING TEST COMPLETE =====")
+    for candidate in candidates:
+        print(candidate)

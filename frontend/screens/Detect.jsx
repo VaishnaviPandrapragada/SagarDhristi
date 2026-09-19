@@ -1,24 +1,195 @@
-// import React, { useState, useEffect } from "react";
 import React, { useState } from "react";
-import { CheckCircle2, Circle, Loader2 } from "lucide-react";
-import { Bracket, Reading, Pill, Bar, StageHead, StageNav, Caveat, SimTag, SarTexture, SLICK_PATH } from "../components/ui.jsx";
-import { COLORS, SAR, PREPROCESS, VISION_MODELS, ORCHESTRATOR, CASE } from "../data/mock.js";
+import {
+  CheckCircle2,
+  Circle,
+  Loader2,
+} from "lucide-react";
+
+import {
+  Bracket,
+  Reading,
+  Pill,
+  Bar,
+  StageHead,
+  StageNav,
+  Caveat,
+  SimTag,
+  SarTexture,
+  SLICK_PATH,
+} from "../components/ui.jsx";
+
+import {
+  COLORS,
+  SAR,
+  PREPROCESS,
+  VISION_MODELS,
+  ORCHESTRATOR,
+  CASE,
+} from "../data/mock.js";
+
+
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/analyze";
+
+
+/* ==========================================================================
+   HELPERS
+   ========================================================================== */
+
+function formatNumber(value, digits = 2) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  const number = Number(value);
+
+  if (Number.isNaN(number)) {
+    return "—";
+  }
+
+  return number.toFixed(digits);
+}
+
 
 /* ==========================================================================
    STAGE 01 — SAR IMAGE
    ========================================================================== */
-export function SarStage({ go }) {
- const [image, setImage] = useState(null);
-  const [fileName, setFileName] = useState("");
 
-  const handleUpload = (e) => {
-    const file = e.target.files[0];
+export function SarStage({
+  go,
+  analysis,
+  setAnalysis,
+  uploadedFile,
+  setUploadedFile,
+  uploadedImage,
+}) {
+  const [localImage, setLocalImage] = useState(
+    uploadedImage || null
+  );
 
-    if (!file) return;
+  const [localFileName, setLocalFileName] = useState(
+    uploadedFile?.name || ""
+  );
 
-    setFileName(file.name);
-    setImage(URL.createObjectURL(file));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+
+  const [form, setForm] = useState({
+    spill_timestamp: "2022-03-04T06:30:27Z",
+    spill_latitude: "13.46321",
+    spill_longitude: "144.65858",
+    wind_speed_knots: "20",
+    wind_direction_deg: "90",
+    current_speed_knots: "1.5",
+    current_direction_deg: "90",
+    lookback_hours: "6",
+    forecast_hours: "6",
+    time_step_hours: "1",
+  });
+
+
+  const updateField = (key, value) => {
+    setForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
   };
+
+
+  const handleUpload = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+
+    setLocalFileName(file.name);
+    setLocalImage(previewUrl);
+
+    if (setUploadedFile) {
+      setUploadedFile(file);
+    }
+
+    if (setAnalysis) {
+      setAnalysis(null);
+    }
+
+    setError("");
+  };
+
+
+  const runAnalysis = async () => {
+    const file = uploadedFile;
+
+    if (!file) {
+      setError("Please upload a SAR image first.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const formData = new FormData();
+
+      formData.append("file", file);
+
+      Object.entries(form).forEach(
+        ([key, value]) => {
+          formData.append(key, value);
+        }
+      );
+
+
+      const response = await fetch(
+        API_URL,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+
+      if (!response.ok) {
+        throw new Error(
+          `Backend returned HTTP ${response.status}`
+        );
+      }
+
+
+      const data = await response.json();
+
+
+      if (data.status === "error") {
+        throw new Error(
+          data.error ||
+          "Backend analysis failed."
+        );
+      }
+
+
+      if (setAnalysis) {
+        setAnalysis(data);
+      }
+
+
+      go("preprocess");
+
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        err.message ||
+        "Failed to analyze SAR image."
+      );
+
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   return (
     <div className="stage-content">
@@ -27,55 +198,74 @@ export function SarStage({ go }) {
         STAGE 01 · DETECTION
       </div>
 
-      <h1>SAR Image Acquisition</h1>
+      <h1>
+        SAR Image Acquisition
+      </h1>
 
       <p className="stage-description">
         Upload a Sentinel-1 SAR image to begin oil-spill detection.
         The uploaded image will be used for the demonstration pipeline.
       </p>
 
+
       {/* UPLOAD CARD */}
+
       <div className="upload-card">
 
         <div className="upload-icon">
           ↑
         </div>
 
-        <h2>Upload SAR Image</h2>
+        <h2>
+          Upload SAR Image
+        </h2>
 
         <p>
           Supported formats: JPG, JPEG, PNG, TIFF
         </p>
 
         <label className="upload-button">
+
           Choose Image
+
           <input
             type="file"
             accept="image/png,image/jpeg,image/jpg,image/tiff"
             onChange={handleUpload}
             hidden
           />
+
         </label>
 
-        {fileName && (
+
+        {localFileName && (
           <div className="file-name">
-            ✓ {fileName}
+            ✓ {localFileName}
           </div>
         )}
 
       </div>
 
+
       {/* IMAGE PREVIEW */}
-      {image && (
+
+      {localImage && (
         <div className="image-preview-card">
 
           <div className="preview-header">
-            <span>UPLOADED SAR IMAGE</span>
-            <span className="status">READY</span>
+
+            <span>
+              UPLOADED SAR IMAGE
+            </span>
+
+            <span className="status">
+              READY
+            </span>
+
           </div>
 
           <img
-            src={image}
+            src={localImage}
             alt="Uploaded SAR"
             className="sar-preview"
           />
@@ -83,7 +273,223 @@ export function SarStage({ go }) {
         </div>
       )}
 
+
+      {/* BACKEND ERROR */}
+
+      {error && (
+        <div
+          style={{
+            marginTop: "18px",
+            padding: "12px 16px",
+            border: "1px solid rgba(255,100,100,0.35)",
+            color: "#FF9B9B",
+            fontSize: "13px",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+
+      {/* ANALYSIS METADATA */}
+
+      {localImage && (
+        <Bracket>
+          <div
+            style={{
+              padding: "22px",
+              marginTop: "24px",
+            }}
+          >
+
+            <div
+              className="label"
+              style={{
+                color: COLORS.cyan,
+                marginBottom: "18px",
+              }}
+            >
+              INVESTIGATION PARAMETERS
+            </div>
+
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "14px",
+              }}
+            >
+
+              <label>
+                Timestamp
+
+                <input
+                  value={form.spill_timestamp}
+                  onChange={(e) =>
+                    updateField(
+                      "spill_timestamp",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Latitude
+
+                <input
+                  value={form.spill_latitude}
+                  onChange={(e) =>
+                    updateField(
+                      "spill_latitude",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Longitude
+
+                <input
+                  value={form.spill_longitude}
+                  onChange={(e) =>
+                    updateField(
+                      "spill_longitude",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Wind speed
+
+                <input
+                  value={form.wind_speed_knots}
+                  onChange={(e) =>
+                    updateField(
+                      "wind_speed_knots",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Wind direction
+
+                <input
+                  value={form.wind_direction_deg}
+                  onChange={(e) =>
+                    updateField(
+                      "wind_direction_deg",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Current speed
+
+                <input
+                  value={form.current_speed_knots}
+                  onChange={(e) =>
+                    updateField(
+                      "current_speed_knots",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Current direction
+
+                <input
+                  value={form.current_direction_deg}
+                  onChange={(e) =>
+                    updateField(
+                      "current_direction_deg",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Lookback hours
+
+                <input
+                  value={form.lookback_hours}
+                  onChange={(e) =>
+                    updateField(
+                      "lookback_hours",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Forecast hours
+
+                <input
+                  value={form.forecast_hours}
+                  onChange={(e) =>
+                    updateField(
+                      "forecast_hours",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+
+              <label>
+                Time step
+
+                <input
+                  value={form.time_step_hours}
+                  onChange={(e) =>
+                    updateField(
+                      "time_step_hours",
+                      e.target.value
+                    )
+                  }
+                />
+
+              </label>
+
+            </div>
+
+          </div>
+        </Bracket>
+      )}
+
+
       {/* BOTTOM BUTTONS */}
+
       <div className="stage-actions">
 
         <button
@@ -93,16 +499,29 @@ export function SarStage({ go }) {
           ← Back
         </button>
 
+
         <button
           className="primary-button"
-         onClick={() => {
-          if (image) {
-            go("preprocess");
+          onClick={runAnalysis}
+          disabled={
+            loading ||
+            !uploadedFile
           }
-        }}
-        disabled={!image}
-      >
-          Continue to preprocessing →
+        >
+
+          {loading ? (
+            <>
+              <Loader2
+                size={16}
+                className="spin"
+              />
+
+              Running analysis...
+            </>
+          ) : (
+            "Run analysis →"
+          )}
+
         </button>
 
       </div>
@@ -110,239 +529,1040 @@ export function SarStage({ go }) {
     </div>
   );
 }
+
 
 /* ==========================================================================
    STAGE 02 — PREPROCESSING
    ========================================================================== */
-export function PreprocessStage({ go }) {
-  const [done, setDone] = useState(0);
-  const [running, setRunning] = useState(true);
 
-  useEffect(() => {
-    if (!running || done >= PREPROCESS.length) { if (done >= PREPROCESS.length) setRunning(false); return; }
-    const id = setTimeout(() => setDone((d) => d + 1), 520);
-    return () => clearTimeout(id);
-  }, [done, running]);
+export function PreprocessStage({
+  go,
+  analysis,
+  uploadedImage,
+}) {
+  const segmentation =
+    analysis?.segmentation || {};
 
-  const cleaned = done >= PREPROCESS.length;
+  const geometry =
+    analysis?.geometry || {};
 
-  return (
-    <div className="split">
-      <div>
+
+  if (!analysis) {
+    return (
+      <div className="screen">
+
         <StageHead
-          step="02"
-          question="Cleaning and preparing"
-          title="Raw backscatter becomes an analysis-ready scene"
-          lede="Five corrections run in sequence. Each one removes a source of variation that would otherwise be read as signal by the models downstream."
+          eyebrow="02 / PREPROCESS"
+          title="Awaiting SAR Analysis"
+          description="Run the investigation to generate the segmentation result."
         />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 18, alignItems: "center" }}>
-          <Bracket>
-            <div style={{ aspectRatio: "4 / 3", background: "#051722", position: "relative", overflow: "hidden" }}>
-              <svg width="100%" height="100%" viewBox="0 0 200 150" preserveAspectRatio="xMidYMid slice">
-                <defs><SarTexture id="rawtex" frequency={1.4} seed={9} tint="#1A4257" /></defs>
-                <rect width="200" height="150" fill="#0A2A3A" />
-                <rect width="200" height="150" filter="url(#rawtex)" />
-                <ellipse cx="108" cy="82" rx="38" ry="22" fill="#05161F" opacity="0.7" />
-              </svg>
-              <div className="label" style={{ position: "absolute", bottom: 9, left: 11, fontSize: 9.5 }}>Raw SAR</div>
+        <Bracket>
+
+          <div
+            style={{
+              padding: "48px",
+              textAlign: "center",
+            }}
+          >
+
+            <div
+              style={{
+                fontSize: "18px",
+                marginBottom: "12px",
+              }}
+            >
+              NO ANALYSIS RESULT
             </div>
-          </Bracket>
 
-          <div className="mono" style={{ color: COLORS.cyan, fontSize: 18 }}>→</div>
+            <button
+              onClick={() => go("sar")}
+            >
+              BACK TO SAR
+            </button>
 
-          <Bracket live={cleaned}>
-            <div style={{ aspectRatio: "4 / 3", background: "#051722", position: "relative", overflow: "hidden" }}>
-              <svg width="100%" height="100%" viewBox="0 0 200 150" preserveAspectRatio="xMidYMid slice">
-                <defs><SarTexture id="cleantex" frequency={0.32} seed={3} tint="#13394C" /></defs>
-                <rect width="200" height="150" fill="#0C3145" />
-                <rect width="200" height="150" filter="url(#cleantex)" opacity={cleaned ? 1 : 0.35} style={{ transition: "opacity .6s" }} />
-                <ellipse cx="108" cy="82" rx="38" ry="22" fill="#04121B" opacity={cleaned ? 0.92 : 0.6} />
-              </svg>
-              <div className="label" style={{ position: "absolute", bottom: 9, left: 11, fontSize: 9.5 }}>Preprocessed</div>
-            </div>
-          </Bracket>
-        </div>
+          </div>
 
-        <StageNav onBack={() => go("sar")} onNext={() => go("vision")} nextLabel="Run the vision models" />
+        </Bracket>
+
       </div>
+    );
+  }
 
-      <aside>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <span className="label">Correction chain</span>
-          {running ? <Loader2 size={13} color={COLORS.cyan} className="spin" style={{ animation: "spin 1s linear infinite" }} /> : <Pill tone="cyan">Ready</Pill>}
-        </div>
 
-        {PREPROCESS.map((p, i) => {
-          const isDone = i < done;
-          const isActive = i === done && running;
-          return (
-            <div key={p.key} style={{ display: "flex", gap: 12, paddingBottom: 18, marginBottom: 18, borderBottom: i < PREPROCESS.length - 1 ? "1px solid #0F2938" : "none" }}>
-              <div style={{ paddingTop: 2 }}>
-                {isDone ? <CheckCircle2 size={15} color={COLORS.cyan} />
-                  : isActive ? <Circle size={15} color={COLORS.warning} style={{ animation: "pulseDot 1s infinite" }} />
-                  : <Circle size={15} color="#204A5F" />}
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-                  <span style={{ fontSize: 14, color: isDone ? COLORS.white : "#7FAEC7" }}>{p.name}</span>
-                  {isDone && <span className="mono" style={{ fontSize: 10.5, color: "#3F6B80" }}>{p.ms} ms</span>}
-                </div>
-                <p className="note" style={{ margin: "7px 0 0" }}>{p.detail}</p>
-              </div>
-            </div>
-          );
-        })}
+  const maskImage =
+    segmentation.mask_image;
 
-        <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 4 }}
-          onClick={() => { setDone(0); setRunning(true); }}>
-          Re-run chain
-        </button>
-        <div style={{ marginTop: 22 }}><SimTag /></div>
-      </aside>
-    </div>
-  );
-}
 
-/* ==========================================================================
-   STAGE 03 — VISION MODEL LAYER
-   ========================================================================== */
-export function VisionStage({ go }) {
-  const [focus, setFocus] = useState(null);
+  const spillPixels =
+    segmentation.spill_pixels ??
+    geometry.area_pixels ??
+    0;
+
+
+  const coverage =
+    segmentation.coverage_ratio ??
+    geometry.coverage_ratio ??
+    0;
+
+
+  const maskShape =
+    segmentation.mask_shape;
+
 
   return (
-    <div>
+    <div className="screen">
+
       <StageHead
-        step="03"
-        question="Three models, one scene"
-        title="Each architecture sees the slick slightly differently"
-        lede="The same preprocessed scene goes to three segmentation models. They are kept independent on purpose: their disagreements are the signal that stage 04 uses to decide how much to trust the detection."
+        eyebrow="02 / PREPROCESS"
+        title="SAR scene and segmentation mask"
+        description="The uploaded scene is transformed into a pixel-level spill mask for downstream analysis."
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 26 }}>
-        {VISION_MODELS.map((m, i) => (
-          <Bracket key={m.key} live={focus === m.key} className="enter" style={{ animationDelay: `${i * 0.08}s` }}>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: "24px",
+        }}
+      >
+
+        {/* ORIGINAL SAR */}
+
+        <Bracket>
+
+          <div
+            style={{
+              padding: "20px",
+            }}
+          >
+
             <div
-              onMouseEnter={() => setFocus(m.key)}
-              onMouseLeave={() => setFocus(null)}
-              style={{ padding: 22, background: focus === m.key ? "rgba(53,201,245,0.04)" : "transparent", transition: "background .25s" }}
+              className="mono"
+              style={{
+                fontSize: "11px",
+                color: "#4E7C93",
+                letterSpacing: "0.09em",
+                marginBottom: "14px",
+              }}
             >
-              <div style={{ aspectRatio: "4 / 3", background: "#04121B", marginBottom: 20, position: "relative" }}>
-                <svg width="100%" height="100%" viewBox="0 0 200 150">
-                  <rect width="200" height="150" fill="#04121B" />
-                  <g transform="translate(-40,-60) scale(0.62)" fill="#DDF3FB">
-                    <path d={SLICK_PATH} transform={`translate(${i * 4},${i * 3}) scale(${1 + i * 0.03})`} />
-                  </g>
-                  <text x="10" y="142" className="mono" fontSize="8" fill="#3F6B80">PREDICTED MASK</text>
-                </svg>
-              </div>
-
-              <div style={{ fontSize: 18, marginBottom: 6 }}>{m.name}</div>
-              <div className="note" style={{ marginBottom: 20 }}>{m.role}</div>
-
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-                <span className="label">Confidence</span>
-                <span className="mono" style={{ fontSize: 20, color: COLORS.baby }}>{m.confidence.toFixed(2)}</span>
-              </div>
-              <Bar value={m.confidence} color={COLORS.baby} delay={i * 0.1} />
-
-              <div style={{ marginTop: 20, display: "grid", gap: 10 }}>
-                <div>
-                  <span className="label" style={{ color: "#4E7C93" }}>Strength</span>
-                  <p className="note" style={{ margin: "5px 0 0" }}>{m.strength}</p>
-                </div>
-                <div>
-                  <span className="label" style={{ color: "#4E7C93" }}>Limitation</span>
-                  <p className="note" style={{ margin: "5px 0 0" }}>{m.weakness}</p>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 10, borderTop: "1px solid #0F2938" }}>
-                  <span className="label">Mask area</span>
-                  <span className="mono" style={{ fontSize: 13 }}>{m.area} km²</span>
-                </div>
-              </div>
+              INPUT SAR SCENE
             </div>
-          </Bracket>
-        ))}
+
+
+            {uploadedImage ? (
+
+              <div
+                style={{
+                  background: "#02090D",
+                  minHeight: "340px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                }}
+              >
+
+                <img
+                  src={uploadedImage}
+                  alt="Uploaded SAR scene"
+                  style={{
+                    width: "100%",
+                    height: "340px",
+                    objectFit: "contain",
+                  }}
+                />
+
+              </div>
+
+            ) : (
+
+              <div
+                style={{
+                  minHeight: "340px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid #163B4E",
+                  color: "#4E7C93",
+                }}
+              >
+                SAR IMAGE UNAVAILABLE
+              </div>
+
+            )}
+
+          </div>
+
+        </Bracket>
+
+
+        {/* REAL U-NET MASK */}
+
+        <Bracket>
+
+          <div
+            style={{
+              padding: "20px",
+            }}
+          >
+
+            <div
+              className="mono"
+              style={{
+                fontSize: "11px",
+                color: "#4E7C93",
+                letterSpacing: "0.09em",
+                marginBottom: "14px",
+              }}
+            >
+              U-NET SEGMENTATION
+            </div>
+
+
+            {maskImage ? (
+
+              <div
+                style={{
+                  background: "#02090D",
+                  minHeight: "340px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "12px",
+                }}
+              >
+
+                <img
+                  src={maskImage}
+                  alt="U-Net oil spill segmentation mask"
+                  style={{
+                    width: "100%",
+                    height: "316px",
+                    objectFit: "contain",
+                    imageRendering: "pixelated",
+                  }}
+                />
+
+              </div>
+
+            ) : (
+
+              <div
+                style={{
+                  minHeight: "340px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid #163B4E",
+                  color: "#4E7C93",
+                }}
+              >
+                MASK UNAVAILABLE
+              </div>
+
+            )}
+
+          </div>
+
+        </Bracket>
+
       </div>
 
-      <div style={{ marginTop: 30, maxWidth: 620 }}>
-        <Caveat>
-          Mask areas differ by 1.3 km² across the three models. That spread is carried forward as uncertainty rather than averaged away.
-        </Caveat>
-      </div>
-      <div style={{ marginTop: 20 }}><SimTag /></div>
 
-      <StageNav onBack={() => go("preprocess")} onNext={() => go("orchestrator")} nextLabel="Combine predictions" />
+      {/* REAL MEASUREMENTS */}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(160px, 1fr))",
+          gap: "18px",
+          marginTop: "24px",
+        }}
+      >
+
+        <Bracket>
+
+          <div style={{ padding: "18px" }}>
+
+            <Reading
+              label="SPILL PIXELS"
+              value={
+                Number(
+                  spillPixels
+                ).toLocaleString()
+              }
+            />
+
+          </div>
+
+        </Bracket>
+
+
+        <Bracket>
+
+          <div style={{ padding: "18px" }}>
+
+            <Reading
+              label="MASK COVERAGE"
+              value={`${(
+                Number(coverage) * 100
+              ).toFixed(2)}%`}
+            />
+
+          </div>
+
+        </Bracket>
+
+
+        <Bracket>
+
+          <div style={{ padding: "18px" }}>
+
+            <Reading
+              label="MASK SIZE"
+              value={
+                Array.isArray(maskShape)
+                  ? `${maskShape[1]} × ${maskShape[0]}`
+                  : "—"
+              }
+            />
+
+          </div>
+
+        </Bracket>
+
+
+        <Bracket>
+
+          <div style={{ padding: "18px" }}>
+
+            <Reading
+              label="STATUS"
+              value={
+                segmentation.mask_available
+                  ? "READY"
+                  : "UNAVAILABLE"
+              }
+            />
+
+          </div>
+
+        </Bracket>
+
+      </div>
+
+
+      <StageNav
+        onNext={() => go("vision")}
+      />
+
     </div>
   );
 }
+
+
+/* ==========================================================================
+   STAGE 03 — VISION
+   ========================================================================== */
+
+export function VisionStage({
+  go,
+  analysis,
+}) {
+  if (!analysis) {
+    return (
+      <div className="screen">
+
+        <StageHead
+          eyebrow="03 / VISION"
+          title="Awaiting Investigation"
+          description="Run the SAR analysis before entering the vision stage."
+        />
+
+        <Bracket>
+
+          <div
+            style={{
+              padding: "48px",
+              textAlign: "center",
+            }}
+          >
+
+            <div
+              style={{
+                marginBottom: "20px",
+              }}
+            >
+              NO ANALYSIS RESULT
+            </div>
+
+            <button
+              onClick={() => go("sar")}
+            >
+              BACK TO DETECT
+            </button>
+
+          </div>
+
+        </Bracket>
+
+      </div>
+    );
+  }
+
+
+  const models =
+    analysis.vision_models || {};
+
+
+  const modelEntries = [
+    models.unet,
+    models.deeplabv3,
+    models.transunet,
+  ].filter(Boolean);
+
+
+  return (
+    <div className="screen">
+
+      <StageHead
+        eyebrow="03 / VISION"
+        title="Three models examine the spill"
+        description="The trained segmentation models provide independent views of the SAR scene."
+      />
+
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(280px, 1fr))",
+          gap: "20px",
+        }}
+      >
+
+        {modelEntries.map(
+          (model) => (
+
+            <Bracket key={model.key}>
+
+              <div
+                style={{
+                  padding: "20px",
+                }}
+              >
+
+                <div
+                  className="mono"
+                  style={{
+                    color: COLORS.cyan,
+                    marginBottom: "14px",
+                  }}
+                >
+                  {model.name}
+                </div>
+
+
+                {model.mask_image ? (
+
+                  <img
+                    src={model.mask_image}
+                    alt={`${model.name} segmentation mask`}
+                    style={{
+                      width: "100%",
+                      height: "240px",
+                      objectFit: "contain",
+                      background: "#02090D",
+                      imageRendering: "pixelated",
+                    }}
+                  />
+
+                ) : (
+
+                  <div
+                    style={{
+                      height: "240px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: "1px solid #163B4E",
+                      color: "#4E7C93",
+                    }}
+                  >
+                    MASK UNAVAILABLE
+                  </div>
+
+                )}
+
+
+                <div
+                  style={{
+                    marginTop: "18px",
+                    display: "grid",
+                    gap: "10px",
+                  }}
+                >
+
+                  <Reading
+                    label="DETECTED"
+                    value={
+                      model.detected
+                        ? "YES"
+                        : "NO"
+                    }
+                  />
+
+                  <Reading
+                    label="CONFIDENCE"
+                    value={
+                      model.confidence !== null &&
+                      model.confidence !== undefined
+                        ? `${(
+                            Number(
+                              model.confidence
+                            ) * 100
+                          ).toFixed(2)}%`
+                        : "—"
+                    }
+                  />
+
+                  <Reading
+                    label="SPILL AREA"
+                    value={
+                      model.area !== undefined
+                        ? Number(
+                            model.area
+                          ).toLocaleString()
+                        : "—"
+                    }
+                  />
+
+                </div>
+
+              </div>
+
+            </Bracket>
+
+          )
+        )}
+
+      </div>
+
+
+      <StageNav
+        onNext={() =>
+          go("orchestrator")
+        }
+      />
+
+    </div>
+  );
+}
+
 
 /* ==========================================================================
    STAGE 04 — ORCHESTRATOR
    ========================================================================== */
-export function OrchestratorStage({ go }) {
+
+export function OrchestratorStage({
+  go,
+  analysis,
+}) {
+  if (!analysis) {
+    return (
+      <div className="screen">
+
+        <StageHead
+          eyebrow="04 / ORCHESTRATOR"
+          title="Awaiting Investigation"
+          description="The downstream pipeline starts after the SAR analysis returns a result."
+        />
+
+        <Bracket>
+
+          <div
+            style={{
+              padding: "52px",
+              textAlign: "center",
+            }}
+          >
+
+            <div
+              style={{
+                fontSize: "20px",
+                marginBottom: "12px",
+              }}
+            >
+              NO INVESTIGATION RESULT
+            </div>
+
+            <button
+              onClick={() => go("sar")}
+            >
+              BACK TO DETECT
+            </button>
+
+          </div>
+
+        </Bracket>
+
+      </div>
+    );
+  }
+
+
+  const orchestrator =
+    analysis.orchestrator || {};
+
+  const segmentation =
+    analysis.segmentation || {};
+
+
+  const models =
+    analysis.vision_models || {};
+
+
+  const modelEntries = [
+    models.unet,
+    models.deeplabv3,
+    models.transunet,
+  ].filter(Boolean);
+
+
+  const verdict =
+    orchestrator.verdict ||
+    orchestrator.decision ||
+    (
+      analysis.spill_detected
+        ? "MAJORITY_SPILL"
+        : "NO_SPILL"
+    );
+
+
   return (
-    <div>
+    <div className="screen">
+
       <StageHead
         step="04"
         question="Decision point"
         title="One verdict from three opinions"
-        lede="The orchestrator compares the masks, measures agreement, and decides whether the pipeline continues. If the models disagreed, the case would close here with no detection."
+        lede="The orchestrator compares the model outputs and determines whether the investigation continues."
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 40, alignItems: "start" }}>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: 40,
+          alignItems: "start",
+        }}
+      >
+
         <div>
-          {/* Convergence diagram: three inputs collapsing into one output. */}
-          <svg viewBox="0 0 320 260" width="100%" style={{ maxWidth: 360, display: "block" }}>
-            {VISION_MODELS.map((m, i) => (
-              <g key={m.key}>
-                <rect x="6" y={14 + i * 58} width="108" height="40" fill="none" stroke="#1B4A60" />
-                <text x="18" y={34 + i * 58} className="mono" fontSize="10" fill="#A8CBDC">{m.name}</text>
-                <text x="18" y={47 + i * 58} className="mono" fontSize="8.5" fill="#4E7C93">{m.confidence.toFixed(2)}</text>
-                <path
-                  d={`M 114 ${34 + i * 58} C 150 ${34 + i * 58}, 158 148, 196 148`}
-                  fill="none" stroke={COLORS.cyan} strokeWidth="1" opacity="0.5" className="flow-dash"
-                />
-              </g>
-            ))}
-            <rect x="198" y="124" width="112" height="48" fill="rgba(53,201,245,0.07)" stroke={COLORS.cyan} />
-            <text x="212" y="145" className="mono" fontSize="9.5" fill={COLORS.cyan}>ORCHESTRATOR</text>
-            <text x="212" y="160" className="mono" fontSize="8.5" fill="#7FAEC7">majority vote</text>
-            <line x1="254" y1="172" x2="254" y2="206" stroke="#1B4A60" strokeWidth="1" />
-            <polygon points="250,206 258,206 254,214" fill="#1B4A60" />
-            <text x="214" y="236" className="mono" fontSize="10" fill={COLORS.warning}>SPILL DETECTED</text>
+
+          <svg
+            viewBox="0 0 320 260"
+            width="100%"
+            style={{
+              maxWidth: 360,
+              display: "block",
+            }}
+          >
+
+            {modelEntries.map(
+              (model, i) => (
+
+                <g key={model.key || i}>
+
+                  <rect
+                    x="6"
+                    y={14 + i * 58}
+                    width="108"
+                    height="40"
+                    fill="none"
+                    stroke="#1B4A60"
+                  />
+
+                  <text
+                    x="18"
+                    y={34 + i * 58}
+                    className="mono"
+                    fontSize="10"
+                    fill="#A8CBDC"
+                  >
+                    {model.name}
+                  </text>
+
+                  <text
+                    x="18"
+                    y={47 + i * 58}
+                    className="mono"
+                    fontSize="8.5"
+                    fill="#4E7C93"
+                  >
+                    {model.confidence != null
+                      ? Number(
+                          model.confidence
+                        ).toFixed(2)
+                      : "—"}
+                  </text>
+
+                  <path
+                    d={`M 114 ${
+                      34 + i * 58
+                    } C 150 ${
+                      34 + i * 58
+                    }, 158 148, 196 148`}
+                    fill="none"
+                    stroke={COLORS.cyan}
+                    strokeWidth="1"
+                    opacity="0.5"
+                    className="flow-dash"
+                  />
+
+                </g>
+
+              )
+            )}
+
+
+            <rect
+              x="198"
+              y="124"
+              width="112"
+              height="48"
+              fill="rgba(53,201,245,0.07)"
+              stroke={COLORS.cyan}
+            />
+
+            <text
+              x="212"
+              y="145"
+              className="mono"
+              fontSize="9.5"
+              fill={COLORS.cyan}
+            >
+              ORCHESTRATOR
+            </text>
+
+            <text
+              x="212"
+              y="160"
+              className="mono"
+              fontSize="8.5"
+              fill="#7FAEC7"
+            >
+              majority vote
+            </text>
+
+
+            <line
+              x1="254"
+              y1="172"
+              x2="254"
+              y2="206"
+              stroke="#1B4A60"
+              strokeWidth="1"
+            />
+
+            <polygon
+              points="250,206 258,206 254,214"
+              fill="#1B4A60"
+            />
+
+            <text
+              x="214"
+              y="236"
+              className="mono"
+              fontSize="10"
+              fill={
+                analysis.spill_detected
+                  ? COLORS.warning
+                  : COLORS.cyan
+              }
+            >
+              {analysis.spill_detected
+                ? "SPILL DETECTED"
+                : "NO SPILL"}
+            </text>
+
           </svg>
 
-          <p className="note" style={{ marginTop: 24, maxWidth: 380 }}>{ORCHESTRATOR.rule}</p>
+
+          <p
+            className="note"
+            style={{
+              marginTop: 24,
+              maxWidth: 380,
+            }}
+          >
+            The orchestrator combines the independent
+            model outputs into one investigation decision.
+          </p>
+
         </div>
+
 
         <div>
+
           <Bracket live>
-            <div style={{ padding: "30px 28px" }}>
-              <div className="label" style={{ color: COLORS.cyan, marginBottom: 16 }}>Combined result</div>
-              <div style={{ fontSize: 22, color: COLORS.warning, marginBottom: 20 }}>{ORCHESTRATOR.verdict}</div>
-              <div style={{ display: "flex", gap: 34, flexWrap: "wrap" }}>
-                <Reading label="Confidence" value={ORCHESTRATOR.confidence.toFixed(2)} size={34} color={COLORS.cyan} />
-                <Reading label="Model agreement" value={ORCHESTRATOR.agreement.toFixed(2)} size={34} />
-                <Reading label="Mask IoU" value={ORCHESTRATOR.iou.toFixed(2)} size={34} />
+
+            <div
+              style={{
+                padding: "30px 28px",
+              }}
+            >
+
+              <div
+                className="label"
+                style={{
+                  color: COLORS.cyan,
+                  marginBottom: 16,
+                }}
+              >
+                Combined result
               </div>
+
+
+              <div
+                style={{
+                  fontSize: 22,
+                  color: analysis.spill_detected
+                    ? COLORS.warning
+                    : COLORS.cyan,
+                  marginBottom: 20,
+                }}
+              >
+                {verdict}
+              </div>
+
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 34,
+                  flexWrap: "wrap",
+                }}
+              >
+
+                <Reading
+                  label="Confidence"
+                  value={
+                    orchestrator.confidence != null
+                      ? Number(
+                          orchestrator.confidence
+                        ).toFixed(2)
+                      : "—"
+                  }
+                  size={34}
+                  color={COLORS.cyan}
+                />
+
+
+                <Reading
+                  label="Model agreement"
+                  value={
+                    orchestrator.agreement != null
+                      ? Number(
+                          orchestrator.agreement
+                        ).toFixed(2)
+                      : "—"
+                  }
+                  size={34}
+                />
+
+
+                <Reading
+                  label="Mask IoU"
+                  value={
+                    orchestrator.iou != null
+                      ? Number(
+                          orchestrator.iou
+                        ).toFixed(2)
+                      : "—"
+                  }
+                  size={34}
+                />
+
+              </div>
+
             </div>
+
           </Bracket>
 
-          <div style={{ marginTop: 28 }}>
-            {ORCHESTRATOR.decisions.map((d, i) => (
-              <div key={i} style={{ padding: "15px 0", borderBottom: "1px solid #0F2938", display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 13.5, color: "#7FAEC7" }}>{d.q}</span>
-                <span className="mono" style={{ fontSize: 13, color: COLORS.white, textAlign: "right" }}>{d.a}</span>
-              </div>
-            ))}
+
+          <div
+            style={{
+              marginTop: 28,
+            }}
+          >
+
+            <Reading
+              label="MASK STATUS"
+              value={
+                segmentation.mask_available
+                  ? "AVAILABLE"
+                  : "UNAVAILABLE"
+              }
+            />
+
           </div>
 
-          <div style={{ marginTop: 24 }}><SimTag /></div>
+
+          <div
+            style={{
+              marginTop: 24,
+            }}
+          >
+            <SimTag />
+          </div>
+
         </div>
+
       </div>
 
-      <StageNav onBack={() => go("vision")} onNext={() => go("characterize")} nextLabel="Characterize the spill" />
+
+      <StageNav
+        onBack={() => go("vision")}
+        onNext={() =>
+          go("characterize")
+        }
+        nextLabel="Characterize the spill"
+      />
+
+    </div>
+  );
+}
+
+
+/* ==========================================================================
+   MAIN DETECT SCREEN
+   ========================================================================== */
+
+export default function Detect({
+  go,
+  analysis,
+  setAnalysis,
+  uploadedFile,
+  setUploadedFile,
+  uploadedImage,
+}) {
+  const [stage, setStage] =
+    useState("sar");
+
+
+  const renderStage = () => {
+
+    switch (stage) {
+
+      case "sar":
+
+        return (
+          <SarStage
+            go={go}
+            analysis={analysis}
+            setAnalysis={setAnalysis}
+            uploadedFile={uploadedFile}
+            setUploadedFile={setUploadedFile}
+            uploadedImage={uploadedImage}
+          />
+        );
+
+
+      case "preprocess":
+
+        return (
+          <PreprocessStage
+            go={go}
+            analysis={analysis}
+            uploadedImage={uploadedImage}
+          />
+        );
+
+
+      case "vision":
+
+        return (
+          <VisionStage
+            go={go}
+            analysis={analysis}
+          />
+        );
+
+
+      case "orchestrator":
+
+        return (
+          <OrchestratorStage
+            go={go}
+            analysis={analysis}
+          />
+        );
+
+
+      default:
+
+        return (
+          <SarStage
+            go={go}
+            analysis={analysis}
+            setAnalysis={setAnalysis}
+            uploadedFile={uploadedFile}
+            setUploadedFile={setUploadedFile}
+            uploadedImage={uploadedImage}
+          />
+        );
+
+    }
+  };
+
+
+  return (
+    <div>
+
+      {renderStage()}
+
+
+      <div
+        style={{
+          display: "flex",
+          gap: "8px",
+          marginTop: "24px",
+          justifyContent: "center",
+        }}
+      >
+
+        {[
+          ["sar", "01"],
+          ["preprocess", "02"],
+          ["vision", "03"],
+          ["orchestrator", "04"],
+        ].map(
+          ([value, label]) => (
+
+            <button
+              key={value}
+              onClick={() =>
+                setStage(value)
+              }
+              style={{
+                minWidth: "48px",
+              }}
+            >
+              {label}
+            </button>
+
+          )
+        )}
+
+      </div>
+
     </div>
   );
 }
