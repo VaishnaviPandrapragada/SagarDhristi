@@ -7,7 +7,7 @@ class DeepLabV3PlusSegmenter(nn.Module):
         super().__init__()
         self.deeplab = smp.DeepLabV3Plus(
             encoder_name="resnet18",
-            encoder_weights="imagenet",
+            encoder_weights=None,
             in_channels=3,
             classes=1,
         )
