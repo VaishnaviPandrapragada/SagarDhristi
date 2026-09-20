@@ -326,6 +326,8 @@ async def analyze_image(
     temp_path = None
 
     try:
+        print("[ANALYZE] START", flush=True)
+
         # ==================================================
         # 1. SAVE UPLOADED IMAGE
         # ==================================================
@@ -340,6 +342,8 @@ async def analyze_image(
             )
 
             temp_path = temp_file.name
+
+        print("[ANALYZE] IMAGE SAVED", flush=True)
 
         # ==================================================
         # 2. THREE-MODEL VISION LAYER
