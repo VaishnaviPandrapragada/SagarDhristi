@@ -464,13 +464,113 @@ using authoritative records and independent evidence.
 <details>
 <summary>View references</summary>
 
-1. Sentinel-1 SAR documentation
-2. Oil-spill segmentation research
-3. AIS-based vessel tracking research
-4. Oil-spill source-tracing research
-5. Environmental drift-modelling research
-6. SIH26143 Problem Statement
-7. Dataset documentation
+REFERENCES
+
+[1] Sentinel-1 SAR Oil Spill Dataset — Part I.
+Zenodo. Oil-spill Sentinel-1 SAR imagery and segmentation masks.
+https://zenodo.org/records/8346860
+
+[2] Sentinel-1 SAR Oil Spill Dataset — Part II.
+Zenodo. No-oil and look-alike Sentinel-1 SAR samples.
+https://zenodo.org/records/8253899
+
+[3] Sentinel-1 SAR Oil Spill Dataset — Part III.
+Zenodo. Independent test data containing oil-spill, look-alike and no-oil samples.
+https://zenodo.org/records/13761290
+
+[4] Sentinel-1 Mission.
+European Space Agency (ESA). Sentinel-1 Synthetic Aperture Radar mission and data documentation.
+https://sentinel.esa.int/
+
+[5] Luo, D. et al. (2024).
+A new ship tracing technology from oil spills based on multi-source data.
+Marine Pollution Bulletin, 207, 116808.
+https://doi.org/10.1016/j.marpolbul.2024.116808
+
+[6] NOAA PyGNOME.
+National Oceanic and Atmospheric Administration. Oil-spill trajectory and environmental modelling.
+https://response.restoration.noaa.gov/oil-and-chemical-spills/oil-spills/pygnome
+
+[7] ERA5 Reanalysis.
+Copernicus Climate Change Service / ECMWF. Historical atmospheric and meteorological data.
+https://www.ecmwf.int/en/forecasts/datasets/reanalysis-datasets/era5
+
+[8] Copernicus Marine Service.
+Oceanographic and marine environmental data used for ocean-current analysis.
+https://marine.copernicus.eu/
+
+[9] NOAA MarineCadastre — AIS Data.
+Historical Automatic Identification System (AIS) vessel-position and movement data.
+https://marinecadastre.gov/ais/
+
+[10] MarineCadastre — AccessAIS.
+NOAA / BOEM / USCG maritime vessel data resources.
+https://marinecadastre.gov/accessais/
+
+[11] EMSA CleanSeaNet.
+European Maritime Safety Agency. Satellite-based oil-spill monitoring and vessel detection service.
+https://www.emsa.europa.eu/csn-menu.html
+
+[12] EMSA — How does SAR detection work?
+European Maritime Safety Agency. Satellite SAR-based oil-spill detection methodology and limitations.
+https://www.emsa.europa.eu/earth-observation-products/how-does-sar-detection-work.html
+
+[13] ITOPF — Oil Tanker Spill Statistics 2025.
+International Tanker Owners Pollution Federation.
+https://www.itopf.org/news/news/itopf-publishes-2025-oil-tanker-spill-statistics/
+
+[14] ITOPF — Data & Statistics.
+International Tanker Owners Pollution Federation. Historical oil-spill statistics and database.
+https://www.itopf.org/knowledge-resources/data-statistics/
+
+[15] Smart India Hackathon 2026 — SIH26143.
+National Technical Research Organisation (NTRO).
+Problem: Leveraging satellite imagery to determine oil spills at sea along with AIS data correlations to identify vessel responsible.
+https://sih2026.vuce.in/ps/SIH26143
+
+[16] OpenCV.
+Open-source computer vision and image-processing library.
+https://opencv.org/
+
+[17] Rasterio.
+Python library for raster and geospatial image processing.
+https://rasterio.readthedocs.io/
+
+[18] GeoPandas.
+Python library for geospatial data analysis.
+https://geopandas.org/
+
+[19] NumPy.
+Python numerical computing library.
+https://numpy.org/
+
+[20] Pandas.
+Python data analysis and manipulation library.
+https://pandas.pydata.org/
+
+[21] FastAPI.
+Python framework used for backend API development.
+https://fastapi.tiangolo.com/
+
+[22] React.
+JavaScript library used for the interactive dashboard.
+https://react.dev/
+
+[23] PyTorch.
+Open-source machine-learning framework used for deep-learning experimentation.
+https://pytorch.org/
 
 </details>
+
+### Acknowledgements
+
+We acknowledge the researchers, open-data providers, government
+agencies and open-source communities whose datasets, publications,
+platforms and software made this project possible.
+
+In particular, we acknowledge the contributors of the Sentinel-1
+oil-spill datasets, NOAA/MarineCadastre AIS resources, Copernicus
+marine and atmospheric datasets, EMSA CleanSeaNet resources,
+ITOPF statistical publications, and the research community working
+on SAR-based oil-spill detection and source tracing.
 
