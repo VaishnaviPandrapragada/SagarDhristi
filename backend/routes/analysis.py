@@ -346,19 +346,13 @@ async def analyze_image(
         # ==================================================
 
         # U-Net is executed exactly once.
-        unet_result = predict_with_unet(
-            temp_path
-        )
-
-        deeplab_result = predict_with_deeplab(
-            temp_path
-        )
-
-        transunet_result = predict_with_transunet(
-            temp_path
-        )
+        unet_result = predict_with_unet(temp_path)
         unload_unet()
+
+        deeplab_result = predict_with_deeplab(temp_path)
         unload_deeplab()
+
+        transunet_result = predict_with_transunet(temp_path)
         unload_transunet()
 
         models = {
