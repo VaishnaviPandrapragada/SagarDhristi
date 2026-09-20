@@ -61,108 +61,74 @@ These datasets are normally analysed as separate sources.
 
 ## Investigation Workflow
 
-
- Sentinel-1 SAR
-       │
-       ▼
- Image Preprocessing
-       │
-       ▼
- AI Spill Segmentation
- U-Net / DeepLabV3+ / TransUNet
-       │
-       ▼
- Spill Characterization
- Area · Shape · Location
-       │
-       ▼
- Wind + Ocean Currents
-       │
-       ▼
- Backward Drift Analysis
-       │
-       ▼
- Probable Source Zone
- + Source Time Window
-       │
-       ▼
- AIS Space-Time Filtering
-       │
-       ▼
- Vessel Trajectory Analysis
-       │
-       ▼
- Evidence Fusion
-       │
-       ▼
- Candidate Vessel Ranking
-       │
-       ▼
- Investigation Dashboard
+<table>
+<tr>
+<td align="center"><b>01</b><br><strong>DETECT</strong><br><sub>Sentinel-1 SAR<br>AI Segmentation</sub></td>
+<td align="center">→</td>
+<td align="center"><b>02</b><br><strong>CHARACTERIZE</strong><br><sub>Area • Shape<br>Location</sub></td>
+<td align="center">→</td>
+<td align="center"><b>03</b><br><strong>TRACE</strong><br><sub>Wind + Currents<br>Backward Drift</sub></td>
+<td align="center">→</td>
+<td align="center"><b>04</b><br><strong>CORRELATE</strong><br><sub>AIS Space-Time<br>Filtering</sub></td>
+<td align="center">→</td>
+<td align="center"><b>05</b><br><strong>ANALYZE</strong><br><sub>Trajectory +<br>Behaviour</sub></td>
+<td align="center">→</td>
+<td align="center"><b>06</b><br><strong>RANK</strong><br><sub>Evidence Fusion<br>Candidate Vessels</sub></td>
+</tr>
+</table>
 
 ## System Architecture
 
-Sagar Dhristi follows a modular investigation pipeline that connects
-satellite imagery, environmental data and AIS vessel data.
+```mermaid
+flowchart LR
 
-┌─────────────────────┐
-│   Sentinel-1 SAR    │
-│   Satellite Image   │
-└──────────┬──────────┘
-           ↓
-┌─────────────────────┐
-│    Preprocessing    │
-│  Noise / Normalise  │
-└──────────┬──────────┘
-           ↓
-┌─────────────────────┐
-│   AI Segmentation   │
-│ U-Net / DeepLabV3+  │
-│     / TransUNet     │
-└──────────┬──────────┘
-           ↓
-┌─────────────────────┐
-│ Spill Characterize  │
-│ Area • Shape • GPS  │
-└──────────┬──────────┘
-           ↓
-     ┌─────┴─────┐
-     ↓           ↓
-┌───────────┐ ┌───────────────┐
-│ Wind +    │ │ Source-Type   │
-│ Currents  │ │ Classification│
-└─────┬─────┘ └───────┬───────┘
-      ↓               ↓
-┌─────────────────────────────┐
-│   Backward Drift Analysis   │
-│ Probable Source Zone + Time │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│     AIS Space-Time Filter   │
-│ Location + Time + Movement  │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│ Trajectory & Behaviour      │
-│ Analysis                    │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│      Evidence Fusion        │
-│ Spatial • Temporal •        │
-│ Trajectory • Behavioural    │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│ Candidate Vessel Ranking    │
-│ Explainable Evidence Score  │
-└──────────────┬──────────────┘
-               ↓
-┌─────────────────────────────┐
-│       FastAPI Backend       │
-│       React Dashboard       │
-└─────────────────────────────┘
+    SAR["Sentinel-1 SAR"] --> PRE["Preprocessing"]
+
+    PRE --> DET["AI Spill Detection<br/>U-Net / DeepLabV3+ / TransUNet"]
+
+    DET --> CHAR["Spill Characterization<br/>Area • Shape • Location"]
+
+    WIND["Wind + Ocean Currents"] --> DRIFT["Backward Drift Analysis"]
+
+    CHAR --> DRIFT
+
+    DRIFT --> SOURCE["Probable Source Zone<br/>+ Time Window"]
+
+    AIS["Historical AIS"] --> FILTER["AIS Space-Time Filtering"]
+
+    SOURCE --> FILTER
+
+    FILTER --> TRAJ["Vessel Trajectory<br/>& Behaviour Analysis"]
+
+    TRAJ --> FUSION["Evidence Fusion"]
+
+    FUSION --> RANK["Candidate Vessel Ranking"]
+
+    RANK --> API["FastAPI Backend"]
+
+    API --> UI["React Dashboard"]
+
+    CHAR --> OUTPUT1["Spill Geometry"]
+
+    SOURCE --> OUTPUT2["Probable Source Zone"]
+
+    RANK --> OUTPUT3["Evidence Score"]
+```
+
+
+
+
+### Architecture Layers
+
+| Layer | Responsibility |
+|---|---|
+| **Data Sources** | Sentinel-1 SAR, wind, ocean currents and AIS |
+| **Processing** | Image preprocessing, segmentation and geospatial analysis |
+| **Investigation** | Spill characterization, drift analysis and source estimation |
+| **AIS Analysis** | Space-time filtering, trajectory and behaviour analysis |
+| **Evidence Layer** | Multi-factor evidence fusion and candidate ranking |
+| **Application Layer** | FastAPI backend and React dashboard |
+
 
 ## Investigation Workflow
 
@@ -332,23 +298,69 @@ The backend exposes the analysis pipeline through a FastAPI service.
 The endpoint accepts an input image and returns the processed
 spill-analysis output.
 
-### Pipeline
+## Investigation Pipeline
 
-Image
-  ↓
-Preprocessing
-  ↓
-Segmentation
-  ↓
-Spill Characterization
-  ↓
-Source Estimation
-  ↓
-AIS Correlation
-  ↓
-Evidence Ranking
-  ↓
-JSON Response
+<table>
+<tr>
+<td align="center"><b>01</b><br>Satellite Input</td>
+<td>→</td>
+<td align="center"><b>02</b><br>Spill Detection</td>
+<td>→</td>
+<td align="center"><b>03</b><br>Characterization</td>
+<td>→</td>
+<td align="center"><b>04</b><br>Source Estimation</td>
+<td>→</td>
+<td align="center"><b>05</b><br>AIS Correlation</td>
+<td>→</td>
+<td align="center"><b>06</b><br>Evidence Ranking</td>
+</tr>
+</table>
+
+### From Detection to Investigation
+
+**Sentinel-1 SAR**  
+Satellite imagery provides the initial observation of the maritime area.
+
+↓  
+
+**AI Spill Segmentation**  
+U-Net, DeepLabV3+ and TransUNet identify regions that may correspond to an oil spill.
+
+↓  
+
+**Spill Characterization**  
+The detected region is analysed using area, shape, centroid and other geometric features.
+
+↓  
+
+**Source Estimation**  
+Wind and ocean-current information is combined with backward drift analysis to estimate a probable source zone and time window.
+
+↓  
+
+**AIS Correlation**  
+Historical AIS records are filtered using the estimated location and time to identify vessels that could realistically be associated with the event.
+
+↓  
+
+**Evidence Ranking**  
+Spatial, temporal, trajectory and behavioural evidence are combined to produce an explainable ranking of candidate vessels.
+
+## Analysis Output
+
+The system converts multiple data sources into a structured investigation result.
+
+| Output | Description |
+|---|---|
+| **Spill Detection** | Whether a potential spill region was identified |
+| **Confidence** | Model confidence associated with the detection |
+| **Spill Geometry** | Area, centroid, shape and spatial extent |
+| **Source Zone** | Probable region and time window of origin |
+| **Candidate Vessels** | Vessels matching the relevant space-time conditions |
+| **Evidence Score** | Combined score based on supporting evidence |
+
+### Example Result
+
 
 {
   "spill_detected": true,
@@ -366,20 +378,14 @@ JSON Response
 }
 
 
----
+###10. DASHBOARD
 
-# 10. DASHBOARD
-
-Then show screenshots.
 
 ## Dashboard
 
 The React dashboard presents the investigation results in a single
 interface.
 
-### Dashboard View
-
-![Dashboard](docs/assets/dashboard.png)
 
 ### Key Outputs
 
