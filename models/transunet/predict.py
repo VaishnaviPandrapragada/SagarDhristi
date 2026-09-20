@@ -7,7 +7,7 @@ from .model import create_model
 
 DEVICE=torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH=Path(__file__).resolve().parent/"weights"/"transunet_segmentation_best.pth"
-_model=None
+_model = None
 
 def load_model():
     global _model
@@ -34,3 +34,9 @@ def predict(image_path):
             "mask":mask,"mask_shape":list(mask.shape),"spill_pixels":pixels,
             "coverage_ratio":cov,"mask_image":f"data:image/png;base64,{encoded}",
             "original_image_size":list(original_size),"model_input_size":[128,128]}
+
+def unload_model():
+    global _model
+    _model = None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()

@@ -19,6 +19,9 @@ from services.ais_source_matching_service import AISSourceMatchingService
 from services.phase_b_evidence_service import PhaseBEvidenceService
 from services.alert_service import AlertService
 
+from models.deeplabv3.predict import unload_model as unload_deeplab
+from models.transunet.predict import unload_model as unload_transunet
+from services.segmentation_service import unload_model as unload_unet
 
 router = APIRouter()
 
@@ -354,6 +357,9 @@ async def analyze_image(
         transunet_result = predict_with_transunet(
             temp_path
         )
+        unload_unet()
+        unload_deeplab()
+        unload_transunet()
 
         models = {
             "unet": _serialize_model_result(

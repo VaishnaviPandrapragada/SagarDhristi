@@ -7,7 +7,7 @@ from .model import create_model
 
 DEVICE=torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH=Path(__file__).resolve().parent/"weights"/"deeplabv3plus_segmentation_best.pth"
-_model=None
+_model = None
 
 def load_model():
     global _model
@@ -47,3 +47,7 @@ def predict(image_path):
         "original_image_size":list(original_size),
         "model_input_size":[256,256],
     }
+
+def unload_model():
+    global _model
+    _model = None

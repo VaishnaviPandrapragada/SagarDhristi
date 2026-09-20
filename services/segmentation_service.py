@@ -252,3 +252,9 @@ def predict_segmentation(
 
         "mask_threshold": MASK_THRESHOLD,
     }
+
+def unload_model():
+    global _MODEL
+    _MODEL = None
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
