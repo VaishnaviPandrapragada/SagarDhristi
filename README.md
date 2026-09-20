@@ -574,7 +574,6 @@ marine and atmospheric datasets, EMSA CleanSeaNet resources,
 ITOPF statistical publications, and the research community working
 on SAR-based oil-spill detection and source tracing.
 
-## License
 
 This project is licensed under the MIT License.
 See the [LICENSE](LICENSE) file for details.
