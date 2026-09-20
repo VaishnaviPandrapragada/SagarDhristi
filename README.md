@@ -1,645 +1,470 @@
-SAGAR DHRISTI
-Satellite-based Oil Spill Detection, Source Tracing and AIS Correlation
+<div align="center">
 
-SIH26143 · NTRO · Smart India Hackathon 2026
+# SAGAR DHRISTI
 
-Sagar Dhristi is a geospatial intelligence system that combines Sentinel-1 SAR imagery, environmental data and historical AIS records to support oil-spill investigation.
+### Satellite-based Oil Spill Detection, Source Tracing & AIS Correlation
 
-The system follows a four-stage workflow:
+**SIH26143 · NTRO · Smart India Hackathon 2026**
 
-DETECT → TRACE → CORRELATE → RANK
+<br>
 
-It detects possible oil spills from satellite imagery, estimates a probable source region using wind and ocean-current data, correlates the source window with historical vessel movements, and produces an evidence-based ranking of candidate vessels.
+<a href="https://sagardhristi-dts3.onrender.com/">
+  <img src="https://img.shields.io/badge/LIVE%20DEMO-0B5CAD?style=for-the-badge" />
+</a>
+&nbsp;
 
-The system supports investigation and decision-making. It does not establish legal liability or declare a vessel guilty.
-Live link : https://sagardhristi-dts3.onrender.com/
+<br><br>
 
-01 — OVERVIEW
+<b>DETECT&nbsp;&nbsp;→&nbsp;&nbsp;TRACE&nbsp;&nbsp;→&nbsp;&nbsp;CORRELATE&nbsp;&nbsp;→&nbsp;&nbsp;RANK</b>
+
+</div>
+
+---
+
+## Overview
+
+Sagar Dhristi is a geospatial intelligence system for oil-spill investigation.
+
+It combines **Sentinel-1 SAR imagery**, environmental data and historical **Automatic Identification System (AIS)** records to connect four stages of analysis:
+
+| Stage | Purpose |
+|---|---|
+| **Detect** | Identify possible oil-spill regions from SAR imagery |
+| **Trace** | Estimate the probable source region using wind and ocean currents |
+| **Correlate** | Identify vessels present in the relevant space-time window |
+| **Rank** | Combine available evidence to produce candidate-vessel rankings |
+
+The system is intended to support investigation and decision-making. A candidate ranking does **not** establish legal liability or declare a vessel responsible.
+
+**Live system:**  
+https://sagardhristi-dts3.onrender.com/
+
+---
+
+## The Problem
 
 An oil slick observed at sea may not correspond to the location where the oil was originally released.
 
-Investigating an incident therefore requires multiple sources of information:
-
-Satellite imagery for detecting possible spills
-Environmental data for understanding spill movement
-AIS data for reconstructing vessel movement
-Geospatial analysis for connecting the different datasets
-Evidence fusion for comparing potential candidate vessels
-
-Sagar Dhristi brings these components into a single investigation workflow.
-
-02 — INVESTIGATION WORKFLOW
-                    SENTINEL-1 SAR
-                          |
-                          v
-                  IMAGE PREPROCESSING
-                          |
-                          v
-                 AI SPILL SEGMENTATION
-                U-Net / DeepLabV3+
-                    / TransUNet
-                          |
-                          v
-                 SPILL CHARACTERIZATION
-                Area / Shape / Location
-                          |
-                          v
-             WIND + OCEAN CURRENT DATA
-                          |
-                          v
-                  BACKWARD DRIFT MODEL
-                          |
-                          v
-                PROBABLE SOURCE ZONE
-                   + TIME WINDOW
-                          |
-                          v
-                AIS SPACE-TIME FILTER
-                          |
-                          v
-             TRAJECTORY & BEHAVIOUR
-                   ANALYSIS
-                          |
-                          v
-                   EVIDENCE FUSION
-                          |
-                          v
-                CANDIDATE RANKING
-                          |
-                          v
-                 INVESTIGATION VIEW
-03 — SYSTEM ARCHITECTURE
-
-Sagar Dhristi is organised as a sequence of modular processing stages.
-
-Stage	Input	Processing	Output
-Satellite ingestion	Sentinel-1 SAR	Preprocessing	Prepared SAR image
-Spill detection	SAR image	AI segmentation	Spill mask
-Characterization	Spill mask	Geospatial analysis	Area, centroid, geometry
-Source estimation	Spill + environmental data	Backward drift	Probable source zone
-Vessel filtering	Source zone + AIS	Spatio-temporal filtering	Candidate vessels
-Trajectory analysis	AIS tracks	Movement analysis	Trajectory features
-Evidence fusion	Combined evidence	Candidate scoring	Ranked candidates
-Visualization	Analysis results	React dashboard	Investigation interface
-04 — SAR SPILL DETECTION
-
-The first stage identifies possible oil-spill regions from Sentinel-1 Synthetic Aperture Radar imagery.
-
-SAR is suitable for maritime monitoring because it can acquire imagery independent of daylight and is capable of operating through cloud cover.
-
-Models explored
-U-Net
-DeepLabV3+
-TransUNet
-
-The segmentation stage produces a binary mask:
-
-0 → Background
-1 → Possible oil spill
-
-The resulting mask is passed to the characterization stage.
-
-Evaluation metrics
-Intersection over Union (IoU)
-Dice / F1 Score
-Precision
-Recall
-Accuracy
-
-Model results are evaluated according to the dataset and experimental split used.
-
-05 — SPILL CHARACTERIZATION
-
-After segmentation, the detected region is converted into measurable spatial features.
-
-The characterization stage extracts:
-
-Spill presence
-Pixel area
-Largest connected component
-Centroid
-Bounding box
-Perimeter
-Aspect ratio
-Compactness
-
-Example:
-
-{
-  "spill_detected": true,
-  "confidence": 0.914,
-  "spill": {
-    "area_pixels": 17450,
-    "centroid": {
-      "latitude": 13.4256,
-      "longitude": 144.6821
-    },
-    "bounding_box": {
-      "width": 250,
-      "height": 220
-    },
-    "aspect_ratio": 1.136,
-    "perimeter": 912.4,
-    "compactness": 0.264
-  }
-}
-
-For georeferenced satellite imagery, geographic coordinates can be derived from the raster transform.
-
-06 — PROBABLE SOURCE ESTIMATION
-
-The observed spill location is not necessarily the release location.
-
-Sagar Dhristi uses environmental information to estimate how the slick could have moved.
-
-Environmental inputs
-Wind
-Ocean currents
-Spill location
-Estimated elapsed time
-Processing
-Observed Spill
-      |
-      v
-Environmental Conditions
-      |
-      v
-Backward Drift
-      |
-      v
-Possible Trajectories
-      |
-      v
-Source Density / Probability Region
-      |
-      v
-Probable Source Zone
-+
-Source Time Window
-
-The system reports a probable source zone rather than presenting a single release coordinate as certain.
-
-07 — AIS CORRELATION
-
-Historical Automatic Identification System (AIS) data is used to reconstruct vessel movement around the estimated source region.
-
-The system does not simply select the nearest vessel.
-
-Vessels are filtered using both spatial and temporal constraints.
-
-Space-Time Filtering
-Historical AIS
-      |
-      v
-Location Filter
-      |
-      v
-Source Time Window
-      |
-      v
-Trajectory Filter
-      |
-      v
-Candidate Vessels
+Investigation therefore requires the combination of:
+
+- Satellite imagery
+- Ocean-current and wind information
+- Historical AIS records
+- Geospatial analysis
+- Vessel trajectory information
+
+These datasets are normally analysed as separate sources.
+
+**Sagar Dhristi connects them into a single investigation workflow.**
+
+---
+
+## Investigation Workflow
+
+
+ Sentinel-1 SAR
+       │
+       ▼
+ Image Preprocessing
+       │
+       ▼
+ AI Spill Segmentation
+ U-Net / DeepLabV3+ / TransUNet
+       │
+       ▼
+ Spill Characterization
+ Area · Shape · Location
+       │
+       ▼
+ Wind + Ocean Currents
+       │
+       ▼
+ Backward Drift Analysis
+       │
+       ▼
+ Probable Source Zone
+ + Source Time Window
+       │
+       ▼
+ AIS Space-Time Filtering
+       │
+       ▼
+ Vessel Trajectory Analysis
+       │
+       ▼
+ Evidence Fusion
+       │
+       ▼
+ Candidate Vessel Ranking
+       │
+       ▼
+ Investigation Dashboard
+
+## System Architecture
+
+Sagar Dhristi follows a modular investigation pipeline that connects
+satellite imagery, environmental data and AIS vessel data.
+
+┌─────────────────────┐
+│   Sentinel-1 SAR    │
+│   Satellite Image   │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│    Preprocessing    │
+│  Noise / Normalise  │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│   AI Segmentation   │
+│ U-Net / DeepLabV3+  │
+│     / TransUNet     │
+└──────────┬──────────┘
+           ↓
+┌─────────────────────┐
+│ Spill Characterize  │
+│ Area • Shape • GPS  │
+└──────────┬──────────┘
+           ↓
+     ┌─────┴─────┐
+     ↓           ↓
+┌───────────┐ ┌───────────────┐
+│ Wind +    │ │ Source-Type   │
+│ Currents  │ │ Classification│
+└─────┬─────┘ └───────┬───────┘
+      ↓               ↓
+┌─────────────────────────────┐
+│   Backward Drift Analysis   │
+│ Probable Source Zone + Time │
+└──────────────┬──────────────┘
+               ↓
+┌─────────────────────────────┐
+│     AIS Space-Time Filter   │
+│ Location + Time + Movement  │
+└──────────────┬──────────────┘
+               ↓
+┌─────────────────────────────┐
+│ Trajectory & Behaviour      │
+│ Analysis                    │
+└──────────────┬──────────────┘
+               ↓
+┌─────────────────────────────┐
+│      Evidence Fusion        │
+│ Spatial • Temporal •        │
+│ Trajectory • Behavioural    │
+└──────────────┬──────────────┘
+               ↓
+┌─────────────────────────────┐
+│ Candidate Vessel Ranking    │
+│ Explainable Evidence Score  │
+└──────────────┬──────────────┘
+               ↓
+┌─────────────────────────────┐
+│       FastAPI Backend       │
+│       React Dashboard       │
+└─────────────────────────────┘
 
-Relevant AIS features include:
+## Investigation Workflow
 
-MMSI
-Timestamp
-Latitude
-Longitude
-Speed over ground
-Course over ground
-Heading
-Vessel type
-Time gap
-Distance travelled
-Distance from source zone
-Course changes
-Time difference from estimated spill event
-08 — TRAJECTORY AND BEHAVIOUR ANALYSIS
+The investigation is performed in four major stages:
 
-Candidate vessels can be represented as time-ordered trajectories.
+| Stage | Process | Output |
+|---|---|---|
+| **01 — Detect** | Sentinel-1 SAR + AI segmentation | Spill mask |
+| **02 — Trace** | Wind/current data + backward drift | Probable source zone |
+| **03 — Correlate** | AIS + spatial-temporal filtering | Candidate vessels |
+| **04 — Rank** | Evidence fusion + trajectory analysis | Ranked candidates |
 
-Possible trajectory features include:
+### Detect
 
-Position sequence
-Speed variation
-Course variation
-Direction changes
-Distance from probable source zone
-Time spent near the source region
-Movement continuity
+The system processes Sentinel-1 SAR imagery and uses segmentation
+models to identify regions that may correspond to oil spills.
 
-An RNN/LSTM-based approach can be explored for vessel movement modelling where sufficient sequential training data is available.
+### Trace
 
-The environmental drift model and vessel trajectory model serve different purposes:
+The detected spill is characterized using its geometry and location.
+Environmental conditions are then used to estimate how the slick could
+have moved and derive a probable source zone and time window.
 
-Oil movement      → Environmental / drift model
+### Correlate
 
-Vessel movement   → AIS trajectory analysis
-09 — EVIDENCE FUSION
+Historical AIS data is filtered using the estimated source region
+and time window. Vessels that could not have been present in the
+relevant space-time window are removed from further analysis.
 
-Multiple pieces of evidence are combined before generating the final candidate ranking.
+### Rank
 
-Evidence	Purpose
-Spatial proximity	Was the vessel near the probable source zone?
-Temporal proximity	Was it present during the relevant time window?
-Trajectory compatibility	Does its movement connect with the source region?
-Behavioural evidence	Does its movement contain relevant anomalies?
-Source compatibility	Is a vessel a plausible source type?
-Data confidence	How reliable is the available evidence?
+Remaining candidates are evaluated using multiple evidence factors,
+including spatial proximity, temporal alignment, trajectory consistency
+and behavioural patterns.
 
-The prototype evidence score represents agreement among available evidence sources.
+## Core Modules
 
-Evidence score is not probability of guilt.
+### 5.1 Oil Spill Detection
 
-10 — SOURCE-TYPE CLASSIFICATION
+Input:
+- Sentinel-1 SAR imagery
 
-The system does not assume that every oil spill originates from a vessel.
+Models:
+- U-Net
+- DeepLabV3+
+- TransUNet
 
-                  SOURCE TYPE
-                      |
-          +-----------+-----------+
-          |           |           |
-          v           v           v
-       VESSEL       FIXED       UNKNOWN
-                    SOURCE
+Output:
+- Binary spill segmentation mask
+- Spill confidence
+- Detected spill region
 
-Potential fixed sources may include:
+### 5.2 Spill Characterization
 
-Offshore platforms
-Pipelines
-Maritime infrastructure
+The segmentation mask is converted into measurable geometric features.
 
-AIS-based vessel ranking is used when a vessel is a valid candidate.
+| Feature | Description |
+|---|---|
+| Area | Size of detected spill region |
+| Centroid | Geometric centre of the spill |
+| Bounding Box | Spatial extent |
+| Perimeter | Boundary length |
+| Aspect Ratio | Shape elongation |
+| Compactness | Shape characteristics |
 
-If evidence does not support a strong vessel association, the system retains an uncertain result rather than forcing a vessel attribution.
+### 5.3 Probable Source Estimation
 
-11 — HANDLING UNCERTAINTY
+A detected spill does not necessarily indicate the location where
+the oil was released.
 
-Real-world maritime datasets contain uncertainty at several stages.
+Sagar Dhristi therefore uses:
 
-SAR uncertainty
+**Spill Location → Environmental Data → Backward Drift → Source Zone**
 
-Dark regions in SAR imagery can have multiple causes and are not automatically oil.
+The output is represented as a probable source region and time window
+rather than an exact release coordinate.
 
-Approach: Multi-model segmentation and confidence-aware analysis.
+### 5.4 AIS Correlation
 
-Source uncertainty
+AIS records are filtered using:
 
-The observed slick may have moved from its release location.
+- Vessel position
+- Timestamp
+- Distance from source zone
+- Time difference
+- Vessel trajectory
+- Course and speed
+- Source-zone overlap
 
-Approach: Backward drift modelling and source-zone estimation.
+This produces a smaller set of realistic candidate vessels.
 
-Environmental uncertainty
+### 5.5 Evidence Fusion
 
-Wind and current conditions vary spatially and temporally.
+Each candidate is evaluated using multiple independent signals.
 
-Approach: Multiple scenarios and uncertainty-aware source regions.
+| Evidence | Meaning |
+|---|---|
+| Spatial | Was the vessel near the source zone? |
+| Temporal | Was it present during the relevant time? |
+| Trajectory | Does its movement connect with the source zone? |
+| Behavioural | Are there unusual movement patterns? |
 
-AIS uncertainty
+The final output is an **evidence score**, not a declaration of
+responsibility.
 
-AIS records may contain gaps, noise or incomplete information.
+## Technology Stack
 
-Approach: Confidence-aware analysis and multi-factor evidence.
+| Layer | Technologies |
+|---|---|
+| Satellite Data | Sentinel-1 SAR |
+| AI / ML | U-Net, DeepLabV3+, TransUNet |
+| Environmental Data | Ocean Currents, Wind |
+| Vessel Data | Historical AIS |
+| Geospatial | Rasterio, GeoPandas, OpenCV |
+| Backend | Python, FastAPI |
+| Frontend | React |
+| Data Processing | NumPy, Pandas |
 
-Vessel-density uncertainty
+## Dataset & Data Sources
 
-Several vessels may be present around the source region.
+### Satellite Imagery
 
-Approach: Space-time filtering followed by evidence-based ranking.
+- Sentinel-1 SAR oil-spill imagery
+- Oil-spill segmentation masks
+- Look-alike and no-oil samples
 
-12 — CHALLENGES AND STRATEGIES
-Challenge	Strategy
-SAR look-alikes	Multi-model segmentation
-Source-location uncertainty	Backward drift modelling
-Environmental variability	Uncertainty-aware analysis
-AIS data gaps	Space-time filtering
-High vessel density	Evidence-based ranking
-Non-vessel sources	Source-type classification
-Limited training data	Data validation and augmentation
+### AIS
 
-13 — TECHNOLOGY STACK
+Historical AIS records containing vessel position,
+timestamp and movement information.
 
-Data
+### Environmental Data
 
-Sentinel-1 SAR · Historical AIS · Wind Data · Ocean Current Data
+- Ocean current information
+- Wind information
 
-Machine Learning
+These datasets are combined only when their spatial and temporal
+coverage is compatible with the investigation case.
 
-Python · U-Net · DeepLabV3+ · TransUNet
+## Model Evaluation
 
-Geospatial Processing
+The segmentation stage supports comparison between multiple
+architectures rather than relying on a single model.
 
-Rasterio · GeoPandas · OpenCV · NumPy
+| Model | Role |
+|---|---|
+| U-Net | Baseline segmentation |
+| DeepLabV3+ | Multi-scale semantic segmentation |
+| TransUNet | CNN + Transformer-based segmentation |
 
-Backend
+Evaluation metrics include:
 
-FastAPI
+- IoU
+- Dice / F1 Score
+- Precision
+- Recall
+- Accuracy
 
-Frontend
+## API
 
-React
+The backend exposes the analysis pipeline through a FastAPI service.
 
-Development
+### Analysis Endpoint
 
-Git · GitHub · Jupyter · Python
+`POST /api/analyze`
 
+The endpoint accepts an input image and returns the processed
+spill-analysis output.
 
-14 — API
+### Pipeline
 
-The backend exposes the analysis pipeline through FastAPI.
-
-Analysis Pipeline
-SAR Image
-    ↓
+Image
+  ↓
 Preprocessing
-    ↓
+  ↓
 Segmentation
-    ↓
-Characterization
-    ↓
+  ↓
+Spill Characterization
+  ↓
 Source Estimation
-    ↓
+  ↓
 AIS Correlation
-    ↓
-Evidence Fusion
-Example Endpoint
-POST /api/analyze
-Example Output
+  ↓
+Evidence Ranking
+  ↓
+JSON Response
+
 {
   "spill_detected": true,
-  "confidence": 0.914,
+  "confidence": 0.91,
   "source_zone": {
-    "latitude": 13.42,
-    "longitude": 144.68
+    "latitude": 13.4256,
+    "longitude": 144.6821
   },
   "candidate_vessels": [
     {
-      "vessel_id": "MMSI_XXXX",
-      "evidence_score": 0.86
+      "vessel_id": "XXXXXXXXX",
+      "evidence_score": 86
     }
   ]
 }
 
-15 — DASHBOARD
 
-The interface follows the investigation workflow:
+---
 
-SAR IMAGE
-    ↓
-SPILL DETECTION
-    ↓
-SPILL CHARACTERIZATION
-    ↓
-SOURCE ZONE
-    ↓
-AIS VESSELS
-    ↓
-EVIDENCE ANALYSIS
-    ↓
-CANDIDATE RANKING
+# 10. DASHBOARD
 
-The dashboard presents the detected spill, source estimation, relevant vessel traffic and supporting evidence in a single interface.
+Then show screenshots.
 
-16 — CASE WALKTHROUGH
+## Dashboard
 
-A typical investigation follows these stages:
+The React dashboard presents the investigation results in a single
+interface.
 
-CASE INPUT
-Sentinel-1 SAR image
-        ↓
-SPILL DETECTION
-Possible spill region
-        ↓
-CHARACTERIZATION
-Area / geometry / centroid
-        ↓
-SOURCE ESTIMATION
-Wind + ocean currents
-        ↓
-SOURCE ZONE
-Probable region + time window
-        ↓
-AIS CORRELATION
-Historical vessel traffic
-        ↓
-SPACE-TIME FILTER
-Relevant vessels retained
-        ↓
-EVIDENCE ANALYSIS
-Trajectory + proximity + timing
-        ↓
-FINAL OUTPUT
-Ranked candidate vessels
+### Dashboard View
 
-17 — MODEL EVALUATION
+![Dashboard](docs/assets/dashboard.png)
 
-The segmentation models are evaluated using standard classification and segmentation metrics.
+### Key Outputs
 
-Model	Dataset	Split	IoU	Dice / F1	Precision	Recall
-U-Net	—	—	—	—	—	—
-DeepLabV3+	—	—	—	—	—	—
-TransUNet	—	—	—	—	—	—
+- Detected spill region
+- Spill geometry
+- Probable source zone
+- Source time window
+- AIS candidate vessels
+- Evidence scores
+- Vessel trajectory information
 
-Model performance depends on the dataset, geographical region, preprocessing and evaluation split.
+## Results
 
-Published research benchmarks are kept separate from the team's own experimental results.
+The current prototype demonstrates the complete investigation flow:
 
-18 — DATASETS
-Sentinel-1 SAR Oil Spill Dataset
+**SAR Image → Spill Detection → Source Estimation → AIS Filtering → Candidate Ranking**
 
-The project uses publicly available Sentinel-1 SAR oil-spill datasets for model development and evaluation.
+The system is designed to preserve uncertainty throughout the pipeline
+rather than treating individual model outputs as definitive conclusions.
 
-Primary sources include:
+## Limitations
 
-Sentinel-1 SAR Oil Spill Dataset — Part I
-Sentinel-1 SAR Oil Spill Dataset — Part II
-Sentinel-1 SAR Oil Spill Dataset — Part III
-CSIRO Sentinel-1 SAR Oil/Non-Oil Dataset
-Additional development datasets where applicable
-AIS
+- SAR imagery can contain oil-like look-alikes.
+- Environmental conditions introduce uncertainty into drift estimation.
+- AIS coverage can contain missing or irregular observations.
+- Satellite revisit timing limits temporal resolution.
+- Source attribution depends on the quality and alignment of multiple datasets.
+- The current prototype requires further validation across different
+  geographic regions and real-world spill cases.
 
-Historical AIS data is used for vessel movement analysis.
+## Responsible Use
 
-Environmental Data
+Sagar Dhristi is designed as a decision-support and investigation
+tool.
 
-Wind and ocean-current information is used for drift analysis and probable source estimation.
+A candidate vessel ranking represents evidence consistency within
+the available data. It does not establish legal responsibility,
+intent or guilt.
 
-Detailed dataset information, preprocessing and licensing are documented in docs/datasets.md.
+Final investigation and enforcement decisions require validation
+using authoritative records and independent evidence.
 
-19 — RESEARCH BASIS
+## Future Scope
 
-The project is informed by research in:
+- Lagrangian particle-based drift modelling
+- Improved uncertainty estimation
+- Larger regional AIS datasets
+- Additional SAR and optical satellite sources
+- Improved vessel trajectory modelling
+- Fixed-source detection for platforms and pipelines
+- Automated case report generation
+- Regional model adaptation
 
-SAR remote sensing
-Oil-spill segmentation
-Deep learning
-Marine pollution modelling
-Backward drift modelling
-Lagrangian trajectory analysis
-AIS vessel analytics
-Geospatial intelligence
-Maritime surveillance
-Selected Research
-Longépé et al. (2015) — SAR imagery, AIS and forward drift modelling.
-El Mohtar et al. (2021) — Bayesian oil-spill source identification.
-Luo et al. (2024) — Multi-source ship tracing from oil spills.
-Zakzouk et al. (2025) — Deep learning and SAR-based oil-spill detection.
-Dong et al. (2023) — Deep learning for low-quality SAR oil-spill detection.
+## Team
 
-The complete reference list is available in docs/references.md.
+**Team Sagar Dhristi**
 
-20 — LIMITATIONS
+| Member | Role |
+|---|---|
+| P. Vaishnavi | Data, Research & System Integration |
+| Keertana | AI / ML & Backend |
+| Tanvi Gupta | Frontend & Data |
+| Naman Kumar Sahoo | AI / ML & Trajectory Analysis |
+| Jagat Dubey | Business & Strategy |
+| Nikil | Business & Strategy |
 
-Sagar Dhristi is currently a research and prototype system.
+## SIH 2026
 
-Important limitations include:
+**Problem Statement:** SIH26143  
+**Organization:** NTRO  
+**Theme:** Disaster Management
+**Category:** Software
 
-SAR detections can contain oil-spill look-alikes.
-Environmental conditions introduce uncertainty into drift modelling.
-The observed slick location may differ from the release location.
-AIS data may contain gaps or inaccuracies.
-High vessel density can produce multiple plausible candidates.
-Model performance can vary across geographical regions.
-Training data may not represent every maritime environment.
-Vessel association cannot be established from satellite and AIS evidence alone.
+## References
 
-21 — RESPONSIBLE USE
+<details>
+<summary>View references</summary>
 
-Sagar Dhristi is designed as a decision-support and investigation-assistance system.
+1. Sentinel-1 SAR documentation
+2. Oil-spill segmentation research
+3. AIS-based vessel tracking research
+4. Oil-spill source-tracing research
+5. Environmental drift-modelling research
+6. SIH26143 Problem Statement
+7. Dataset documentation
 
-It should not be used to:
+</details>
 
-Automatically declare a vessel guilty
-Establish legal liability
-Treat a model score as proof
-Treat missing AIS as proof of absence
-Replace human investigation
-Present an uncertain source location as an exact coordinate
-
-The intended workflow is:
-
-Possible Spill
-      +
-Probable Source Zone
-      +
-Historical Vessel Evidence
-      ↓
-Candidate Ranking
-      ↓
-Human Investigation
-
-22 — DEPLOYMENT CONTEXT
-
-Potential institutional users include:
-
-Indian Coast Guard
-Maritime authorities
-Port authorities
-Environmental agencies
-Marine response teams
-
-The architecture is modular and can be adapted to different maritime regions by changing the available satellite, environmental and AIS datasets.
-
-23 — FUTURE DEVELOPMENT
-Detection
-Larger and geographically diverse training datasets
-Improved SAR look-alike discrimination
-Multi-satellite integration
-Source Estimation
-Lagrangian particle modelling
-Weathering and diffusion modelling
-Ensemble environmental scenarios
-Improved uncertainty estimation
-Vessel Analysis
-Larger AIS datasets
-Advanced trajectory modelling
-Behavioural anomaly detection
-Improved candidate scoring
-Platform
-Cloud deployment
-Regional scaling
-Automated data ingestion
-Advanced geospatial visualization
-Historical incident comparison
-
-24 — QUICK START
-Clone the repository
-git clone <repository-url>
-cd SAGAR-DHRISTI
-Create the Python environment
-python -m venv venv
-Activate
-
-Windows:
-
-venv\Scripts\activate
-
-Linux / macOS:
-
-source venv/bin/activate
-Install dependencies
-pip install -r requirements.txt
-Start the backend
-uvicorn main:app --reload
-Start the frontend
-npm install
-npm run dev
-
-25 — TEAM
-Team Sagar Dhristi
-Member	Contribution
-Vaishnavi	Research, data, system integration, source tracing and evidence fusion
-Keertana	Machine learning, U-Net, backend and FastAPI
-Tanvi Gupta	Frontend, interface and data generation
-Naman Kumar Sahoo	Deep learning, DeepLabV3+ and trajectory analysis
-Jagat Dubey	Business model, government adoption and viability
-Nikil	Business strategy, impact and deployment planning
-
-26 — SMART INDIA HACKATHON 2026
-
-Problem Statement: SIH26143
-Organisation: NTRO
-Category: Software
-Theme: Space Technology
-
-27 — REFERENCES
-Government and Operational Sources
-Press Information Bureau, Government of India. (2025). Parliament Question: Coastline of the Country. PRID 2198800.
-International Tanker Owners Pollution Federation (ITOPF). (2026). 2025 Oil Tanker Spill Statistics.
-European Maritime Safety Agency (EMSA). How Does SAR Detection Work?
-UN-SPIDER. AI Combines Satellite Data to Improve Oil Spill Detection.
-Satellite and Environmental Data
-Copernicus Data Space Ecosystem. Sentinel-1 Copernicus Sentinel Mission.
-Hersbach, H., et al. (2020). ERA5 Hourly Data on Single Levels from 1940 to Present. Copernicus Climate Change Service. DOI: 10.24381/cds.adbb2d47.
-NOAA MarineCadastre. Automatic Identification System Vessel Traffic Data.
-Oil-Spill Datasets
-Trujillo-Acatitla, R., et al. (2024). Sentinel-1 SAR Oil Spill Image Dataset — Part I. Zenodo. DOI: 10.5281/zenodo.8346860.
-Trujillo-Acatitla, R., et al. (2024). Sentinel-1 SAR Oil Spill Image Dataset — Part II. Zenodo. DOI: 10.5281/zenodo.8253899.
-Trujillo-Acatitla, R., et al. (2024). Sentinel-1 SAR Oil Spill Image Dataset — Part III. Zenodo. DOI: 10.5281/zenodo.13761290.
-Blondeau-Patissier, D., et al. (2022). CSIRO Sentinel-1 SAR Image Dataset of Oil- and Non-Oil Features for Machine Learning. DOI: 10.25919/4v55-dn16.
-Bakhtiyar2222. Deep-SAR Oil Spill Segmentation Refined. Kaggle.
-AI and SAR Detection
-Dong, X., et al. (2023). Marine Oil Spill Detection from Low-Quality SAR Remote Sensing Images. Journal of Marine Science and Engineering, 11(8), 1552. DOI: 10.3390/jmse11081552.
-Zakzouk, M., Abdulaziz, A. M., Abou El-Magd, I., et al. (2025). Automated Oil Spill Detection Using Deep Learning and SAR Satellite Data for the Northern Entrance of the Suez Canal. Scientific Reports, 15, 20107. DOI: 10.1038/s41598-025-03028-1.
-Sugitha, A., et al. (2026). Automatic Identification System-Based Oil Spill Detection. DOI: 10.21203/rs.3.rs-8922220/v1.
-S., S. (2025). Maritime Environment Safety: Advanced Oil Spill Detection through AIS and Remote Sensing. IJRASET, 13(4), 3371–3377. DOI: 10.22214/ijraset.2025.68733.
-Source Tracing and Vessel Identification
-Longépé, N., Mouche, A. A., Goacolou, M., et al. (2015). Polluter Identification with Spaceborne Radar Imagery, AIS and Forward Drift Modeling. Marine Pollution Bulletin, 101(2), 826–833. DOI: 10.1016/j.marpolbul.2015.08.006.
-El Mohtar, S., et al. (2021). Bayesian Identification of Oil Spill Source Parameters from Image Contours. Marine Pollution Bulletin, 169, 112514. DOI: 10.1016/j.marpolbul.2021.112514.
-Luo, D., et al. (2024). A New Ship Tracing Technology from Oil Spills Based on Multi-Source Data. Marine Pollution Bulletin, 207, 116808. DOI: 10.1016/j.marpolbul.2024.116808.
-SAGAR DHRISTI
-
-Find where first. Determine who next.
-
-Satellite Observation
-        +
-Environmental Dynamics
-        +
-Vessel Movement
-        ↓
-Structured Oil-Spill Investigation
-
-Smart India Hackathon 2026 · SIH26143 · NTRO
